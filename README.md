@@ -14,7 +14,7 @@
 
 Working a single project with many AI agent windows means most of your energy goes to *managing agents*, not to the work — you lose track of what each session did. Canopy adds a supervisor layer one level above the workers: a single orchestrator that holds the plan, spins up isolated work, has an **independent** agent review the result, runs a never-exit quality loop, ships a high-empathy PR, and only interrupts you for a real decision. You steer everything from one seat.
 
-We don't build the coordination half from scratch — [`firstmate`](https://github.com/kunchenguid/firstmate) already provides it. Canopy's net-new value (and the market gap) is the **independent diff-only reviewer + never-exit review→fix→test→lint loop**.
+A close prior-art exists — [`firstmate`](https://github.com/kunchenguid/firstmate) (MIT) — but a code read plus its ~22k-token always-on cost (inherent to its "agent distro" model) means we **build clean on cheaper patterns and harvest its MIT scripts**, rather than fork it. Canopy's net-new value (and the market gap) is the **independent diff-only reviewer + never-exit review→fix→test→lint loop**, delivered lean.
 
 ---
 
@@ -71,6 +71,7 @@ Two diagrams (flow + runtime topology) live in `.lavish/orchestration-layer-arch
 
 | Decision | Choice |
 |---|---|
+| Base: fork or build clean | **Build clean**, harvest firstmate's MIT scripts. Code read confirmed firstmate's ~22k-token always-on contract is inherent to its distro model (poor fit for a cost-sensitive tool). Harvest: `fm-review-diff.sh`, `fm-pr-poll.sh`/`fm-pr-lib.sh` (restart-safe merged-PR watcher), `fm-project-mode.sh` (`+yolo` parse), treehouse-in-worker leasing guards. See `docs/research/firstmate-evaluation.md`. |
 | Orchestrator | A Claude Code CLI session (not the Agent SDK — the SDK has no human-steering UI). Delegates; never edits code. |
 | Worktrees | `treehouse` worktree **pool** — lease per task, `return` on merge (keeps build cache). |
 | Worker isolation | cwd = the treehouse-leased path, raw `git`. **Never** Claude's `isolation: worktree`. |
@@ -262,11 +263,12 @@ Ran the two scary unknowns with real `treehouse` + real Claude subagents in a th
 
 ## 14. Open questions
 
-1. **Fork `firstmate` and extend it, or build clean?** Research recommends extending firstmate (it already is the coordination half; Canopy adds the reviewer + quality loop). *Unblocks Phase 1.*
-2. **Third mode** — what is it? (candidate: plan-only / dry-run that stops before edits.)
-3. **Name** — confirm `Canopy` / `.canopy/`, or `.grove` / `.baton` / `.ledger` / other. (Moot if we adopt firstmate's state layout.)
-4. **The "goal" gate** — adopt an existing tool/skill or build it? What does it check beyond the diff reviewer — just the pass/fail verdict, or a separate rule set?
-5. **Worker spawn + Phase 0b** — confirm `claude --bg` as the default worker (survives `/clear`, but ~linear cost and local-only), and run Phase 0b to verify `--bg` doesn't auto-create a rival worktree vs the treehouse lease.
+1. **Third mode** — what is it? (candidate: plan-only / dry-run that stops before edits.)
+2. **Name** — confirm `Canopy` / `.canopy/`, or `.grove` / `.baton` / `.ledger` / other.
+3. **The "goal" gate** — adopt an existing tool/skill or build it? What does it check beyond the diff reviewer — just the pass/fail verdict, or a separate rule set?
+4. **Worker spawn + Phase 0b** — confirm `claude --bg` as the default worker (survives `/clear`, but ~linear cost and local-only), and run Phase 0b to verify `--bg` doesn't auto-create a rival worktree vs the treehouse lease.
+
+*(Resolved: fork-vs-build → build clean + harvest firstmate MIT scripts — see §7 and `docs/research/firstmate-evaluation.md`.)*
 
 ---
 
