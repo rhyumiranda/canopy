@@ -69,13 +69,68 @@
         <h2 class="text-2xl font-bold">Build or adopt?</h2>
         <span class="badge badge-info badge-soft">from parallel market research</span>
       </div>
-      <div role="alert" class="alert alert-success mb-5">
+      <div role="alert" class="alert alert-warning mb-4">
         <div>
-          <div class="font-bold">Verdict: adopt the base, build the gap.</div>
-          <div class="text-sm opacity-90">No product ships all of this. But <a href="https://github.com/kunchenguid/firstmate" class="link font-semibold">firstmate</a>
-            (same author as treehouse, MIT) already <em>is</em> the coordination half — orchestrator you talk to, treehouse worktree pool, on-disk state that
-            reconciles across sessions, <code>+yolo</code> autonomous/guided modes, PR + merge delivery, human steering. Don't rebuild that.
-            <strong>The unfilled half = the opportunity:</strong> a fresh, independent, diff-only reviewer driving the never-exit review→fix→test→lint loop.</div>
+          <div class="font-bold">Verdict (revised after reading the code): BUILD CLEAN — and harvest firstmate's MIT parts.</div>
+          <div class="text-sm opacity-90">The market <em>summary</em> said "adopt <a href="https://github.com/kunchenguid/firstmate" class="link font-semibold">firstmate</a> as the base." Reading its actual code —
+            plus your token complaint — flips it. firstmate is an agent <strong>distro</strong>: a Claude Code harness of ~100 bash scripts + a ~15k-token always-on
+            <code>AGENTS.md</code> + a documented 7,500-token startup budget ≈ <strong>~22k tokens/home before any work</strong>. That cost is <em>inherent to the distro model</em> —
+            it can't be slimmed without gutting it. So we build clean on our cheaper patterns and <strong>lift the useful MIT pieces</strong> instead.</div>
+        </div>
+      </div>
+      <div class="grid gap-3 md:grid-cols-2 mb-5">
+        <div class="card bg-base-300"><div class="card-body p-4">
+          <h4 class="font-semibold text-sm text-success">Harvest from firstmate (MIT)</h4>
+          <ul class="text-xs text-base-content/75 mt-1 list-disc pl-4 space-y-0.5">
+            <li><code>fm-review-diff.sh</code> — deterministic diff review</li>
+            <li><code>fm-pr-poll.sh</code>/<code>fm-pr-lib.sh</code> — restart-safe merged-PR watcher sidecar + durable wake-queue</li>
+            <li><code>fm-crew-state.sh</code>/<code>fm-busy-lib.sh</code> — semantic busy state</li>
+            <li><code>fm-project-mode.sh</code> — <code>+yolo</code> parsing</li>
+            <li>treehouse-in-worker leasing + tangle guards</li>
+          </ul>
+        </div></div>
+        <div class="card bg-base-300"><div class="card-body p-4">
+          <h4 class="font-semibold text-sm text-error">Why not wrap it</h4>
+          <ul class="text-xs text-base-content/75 mt-1 list-disc pl-4 space-y-0.5">
+            <li>Inherent ~22k-token always-on contract (unfixable without a rewrite)</li>
+            <li>Spawn mismatch — interactive tmux workers, not <code>claude --bg</code></li>
+            <li>~100 interlocking scripts assume features we don't want (secondmates, X-mode, 5 backends, AFK daemon)</li>
+            <li>Bus-factor 1 (single author, single squashed commit)</li>
+          </ul>
+        </div></div>
+      </div>
+
+      <div role="alert" class="alert alert-success mb-3">
+        <div>
+          <div class="font-bold">Scope-changing find: <code>no-mistakes</code> already IS the reviewer + quality loop — lean, standalone, MIT.</div>
+          <div class="text-sm opacity-90">firstmate's quality gate is a separate tool, <strong><code>no-mistakes</code></strong> (by the same author; firstmate is a <em>consumer</em> of it). It's a Go binary+daemon that puts a bare "gate" repo between your worktree and the real remote and runs a fixed 9-step pipeline: <strong>intent → rebase → review → test → document → lint → push → pr → ci</strong>. Its review is a <strong>genuinely independent</strong> fresh agent (separate subprocess, disposable worktree, sees only the diff, never inherits the worker's context) — exactly Canopy's differentiator, already built and verified in the code. It's <strong>lean</strong> (no always-on contract; heavy LLM work runs in isolated subprocesses whose tokens never touch the orchestrator) and enforces the gate at the <strong>git layer</strong> (raw pushes refused — stronger than a Stop hook).</div>
+        </div>
+      </div>
+      <div role="alert" class="alert alert-info alert-soft mb-5">
+        <span class="text-sm"><strong>So Canopy shrinks:</strong> it builds neither the reviewer nor the pipeline — it <em>drives</em> an existing gate. Canopy = the orchestration layer (brief/state, treehouse leasing, parallel <code>claude --bg</code> workers, human steering, merge-watch + teardown, <code>/scribe</code>, modes) that calls <code>no-mistakes axi run --intent "…"</code> per task and loops it to <code>checks-passed</code>. Point its pipeline <code>agent</code> at a <em>different model</em> than the worker → model-level adversarial independence, free. <strong>New decision (open Q):</strong> use upstream <code>no-mistakes</code>, or your own <code>ship-and-sleep</code> (which already forks it + adds an adversarial skeptic + convergence loop + risk routing — closer to Canopy's ambitions)?</span>
+      </div>
+
+      <div tabindex="0" class="collapse collapse-arrow bg-base-200 border border-base-content/10 rounded-box mb-4">
+        <div class="collapse-title font-semibold">The decision trail — how we landed on build-clean (resolved)</div>
+        <div class="collapse-content text-sm">
+          <div role="alert" class="alert alert-success alert-soft mb-3"><span><strong>Resolved:</strong> we read firstmate's code. Ground-rule <em>fit</em> is high and it's technically wrap-able (it IS a Claude Code harness), but the ~22k-token always-on contract is inherent → build clean, harvest the MIT scripts. The for/against below is the reasoning we walked through.</span></div>
+          <p class="mb-2"><strong>The case for extending:</strong></p>
+          <ul class="list-disc pl-5 space-y-1 mb-3">
+            <li>It already implements the coordination half with the <em>same primitives we independently chose</em> — treehouse pool, on-disk state that reconciles across sessions, an orchestrator you talk to, yolo/guided modes, PR/merge, human steering. Rebuilding that is weeks of work for <em>parity, not differentiation</em>.</li>
+            <li>Same author as <code>treehouse</code> — so the firstmate↔treehouse integration (the exact worktree stuff we de-risked in Phase 0) is likely already handled idiomatically.</li>
+            <li>MIT-licensed → free to fork/wrap/ship.</li>
+            <li>It lets us spend 100% of our effort on the <strong>only novel part</strong> — the independent reviewer + never-exit loop — which is precisely the market gap.</li>
+          </ul>
+          <p class="mb-2"><strong>The case for building clean:</strong></p>
+          <ul class="list-disc pl-5 space-y-1 mb-3">
+            <li><strong class="text-warning">Token cost (user-reported):</strong> firstmate "costs a lot of tokens" in practice. If that's inherent to its design, extending it inherits an expensive cost model — a real problem for a cost-sensitive, lean, local-first operator. Our own design deliberately favors cheap patterns (digest re-injection, worker runs its own tests/lint, deterministic gates instead of model calls). The running code eval is checking whether firstmate's cost is inherent or fixable.</li>
+            <li>Fit risk — firstmate is young; if its state schema / agent model fights our ground rules (e.g. <code>claude --bg</code> workers, hook-enforced loop, <code>.canopy</code> layout), we inherit friction.</li>
+            <li>Understanding tax — safely extending someone's code means fully grokking it first; sometimes slower than building the part you already understand.</li>
+            <li>Dependency risk — a young project can churn or stall.</li>
+          </ul>
+          <div role="alert" class="alert alert-info alert-soft">
+            <span><strong>Nuance:</strong> "extend" has two flavors — <em>fork &amp; modify</em> its code, or <em>wrap it as-is</em> (firstmate drives coordination; we add the reviewer/loop around it via our own agents + hooks + skills, no fork). Wrapping is lighter and lower-risk if firstmate is configurable enough. <strong>The cheap way to decide:</strong> read firstmate's actual code against our ground rules — if the reviewer/loop grafts on cleanly (ideally as a wrapper), extend; if its internals fight our design, build clean. My lean is <em>extend</em>, but that's from a summary, not the code yet.</span>
+          </div>
         </div>
       </div>
 
@@ -135,27 +190,28 @@
           <div class="flowwrap">
             <pre class="mermaid">
 flowchart TD
-    Human(["You · orchestrator Claude session"]):::human
-    Human -->|"1 · intent, not a file list"| Brief[[".canopy/ — brief + state<br />holds ALL task context<br />survives a context wipe"]]:::state
-    Brief -->|"2 · lease a worktree"| WT["treehouse pool<br />reused worktree · own branch"]:::infra
-    WT -->|"3 · spawn"| Worker["Worker subagent<br />implements inside worktree"]:::worker
-    Worker -->|"4 · spawn a FRESH agent"| Rev{{"Ephemeral diff reviewer<br />sees git diff only<br />never the worker's reasoning"}}:::review
+    Human(["You + orchestrator<br />Claude Code session"]):::human
+    Human -->|"1 · intent"| Brief[[".canopy/ — brief + state<br />survives a context wipe"]]:::state
+    Brief -->|"2 · lease worktree"| WT["treehouse pool"]:::infra
+    WT -->|"3 · spawn claude --bg"| Worker["Worker session<br />implement + commit<br />on a feature branch"]:::worker
+    Worker -->|"4 · axi run --intent"| Gate
 
-    Rev --> Arch{"Architectural<br />decision needed?"}
-    Arch -->|"YOLO mode"| RevFix["Reviewer fixes it itself"]:::review
-    Arch -->|"Guided mode"| Human
-    Human -.->|"you decide → delegate back"| Worker
+    subgraph GateBox["Quality gate — no-mistakes / ship-and-sleep · external · lean · MIT"]
+      direction TB
+      Gate{{"Pipeline, loops to checks-passed<br />rebase → review → test → lint → docs"}}:::gate
+      Rev["Independent reviewer<br />own subprocess · diff-only<br />(point at a different model)"]:::review
+      Gate -->|"spawns per run"| Rev
+    end
 
-    RevFix --> Goal
-    Rev --> Goal{"Goal check<br />pass / fail"}
-    Goal -->|"fail · issues remain"| Worker
-    Goal -->|"pass · clean diff"| Test{"Tests + orthogonality<br />did we break anything else?"}:::gate
-    Test -->|"fail"| Worker
-    Test -->|"pass"| Lint["Lint + autofix"]:::gate
-    Lint --> PR["Open PR<br />atomic · conventional title · CI green"]:::ship
-    PR --> Watch["Merge watcher<br />one background job watches all PRs"]:::state
-    Watch -->|"merged"| Teardown["treehouse return<br />worktree back to pool · keeps cache"]:::infra
-    Teardown --> Done(["Notify orchestrator · task done"]):::human
+    Rev -->|"issues → fix"| Worker
+    Worker -.->|"re-run gate"| Gate
+    Gate -->|"needs a call · Guided mode"| Human
+    Human -.->|"decide → delegate"| Worker
+    Gate -->|"checks-passed → push via bare gate repo"| PR["PR opened · CI green"]:::ship
+    PR --> Watch["Merge watcher<br />one external gh-axi tick, all PRs"]:::state
+    Watch -->|"merged"| Teardown["treehouse return<br />+ status = done"]:::infra
+    Teardown --> Scribe["/scribe → AGENTS.md<br />durable knowledge"]:::scribe
+    Teardown --> Done(["task done"]):::human
 
     classDef human fill:#c9a227,stroke:#c9a227,color:#1a1a1a,font-weight:bold;
     classDef state fill:#2a2a3a,stroke:#8888aa,color:#e8e8f0;
@@ -164,6 +220,7 @@ flowchart TD
     classDef review fill:#3a2530,stroke:#d98a9e,color:#f7e3ea;
     classDef gate fill:#332a1a,stroke:#d9b36a,color:#f7ecd6;
     classDef ship fill:#232a1f,stroke:#9fd06a,color:#eaf5d6;
+    classDef scribe fill:#2f2540,stroke:#b58ad9,color:#efe3f7;
             </pre>
           </div>
           <div class="flex flex-wrap gap-3 mt-4 text-xs text-base-content/70">
@@ -171,9 +228,10 @@ flowchart TD
             <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#2a2a3a"></span> State / memory</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#1f2f2a"></span> Infra (worktree)</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#26303f"></span> Worker</span>
-            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#3a2530"></span> Reviewer</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#3a2530"></span> Reviewer (inside gate)</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#332a1a"></span> Quality gate</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#232a1f"></span> Ship</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background:#2f2540"></span> Scribe</span>
           </div>
         </div>
       </div>
@@ -396,6 +454,24 @@ flowchart TD
         </ul>
       </div>
 
+      <h3 class="text-lg font-semibold mb-1 mt-2">Where the playbook lives — how the agents "just know"</h3>
+      <p class="text-base-content/60 mb-4 text-sm">The agents don't remember the process between sessions. The playbook is written into config files Claude Code <strong>auto-loads every session</strong>, and the must-happen steps are <strong>enforced by hooks</strong> (which the harness runs — not left to the model's judgment). <code>canopy setup</code> installs all of it once, user-level, so every project's orchestrator just knows.</p>
+      <div class="overflow-x-auto rounded-box border border-base-content/10 bg-base-200 mb-3">
+        <table class="table table-sm">
+          <thead><tr><th>Layer</th><th>What it holds</th><th>Loaded</th><th>Guarantee</th></tr></thead>
+          <tbody>
+            <tr><td>Agent definitions <code>~/.claude/agents/*.md</code></td><td>Each role's job, tools, model. The <strong>orchestrator's system prompt IS the playbook</strong> (lease → spawn worker → fresh reviewer → loop → PR). Worker/reviewer/scribe each have their own.</td><td>on spawn / <code>--agent</code></td><td><span class="badge badge-warning badge-xs">soft</span> model follows</td></tr>
+            <tr><td>Skills / slash commands</td><td>Packaged step-by-step workflows, invoked on demand — <code>/yolo</code>, <code>/scribe</code>, a <code>/canopy</code> task runner.</td><td>when invoked</td><td><span class="badge badge-warning badge-xs">soft</span></td></tr>
+            <tr><td><code>CLAUDE.md</code> / <code>AGENTS.md</code></td><td>Durable always-on rules &amp; conventions — the ground rules, style, the <code>/scribe</code>-written knowledge.</td><td>every session, auto</td><td><span class="badge badge-warning badge-xs">soft</span></td></tr>
+            <tr><td>Hooks <code>settings.json</code></td><td>Deterministic automation the <em>harness</em> runs: re-inject state (SessionStart), enforce the never-exit loop (Stop / SubagentStop exit-2), block a PR until the reviewer verdict is recorded.</td><td>on events</td><td><span class="badge badge-success badge-xs">HARD</span> guaranteed</td></tr>
+            <tr><td><code>.canopy/state.json</code></td><td>Where each task <em>is</em> (status) → so the orchestrator knows the next step.</td><td>read every turn</td><td><span class="badge badge-info badge-xs">data</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div role="alert" class="alert alert-info alert-soft mb-8">
+        <span class="text-sm"><strong>Soft vs hard is the key design choice:</strong> narrative ("how to approach a task") lives in agent prompts + skills — flexible, but the model can drift. The <em>non-negotiables</em> (the loop can't exit early, state must re-inject, no PR before a clean review) go in <strong>hooks</strong>, which fire deterministically regardless of what the model decides. Put judgment in prompts; put guarantees in hooks.</span>
+      </div>
+
       <h3 class="text-lg font-semibold mb-1 mt-2">Runtime architecture — what talks to what</h3>
       <p class="text-base-content/60 mb-4 text-sm">Not the task flow (that's above) — this is the live topology: processes, files, and the one boundary that must sit <em>outside</em> the session.</p>
       <div class="card card-border bg-base-200 mb-6">
@@ -407,25 +483,32 @@ flowchart TB
 
     subgraph Machine["Your machine"]
       direction TB
-      subgraph CC["Claude Code — the orchestrator session"]
+      subgraph CC["Claude Code — orchestrator session (Edit/Write denied)"]
+        direction LR
+        Orch["Orchestrator<br />delegates · never edits"]:::worker
+        Scribe["Scribe<br />/scribe"]:::scribe
+      end
+      subgraph Workers["Worker sessions · claude --bg · detached, survive /clear, steerable"]
+        direction LR
+        W1["Worker A<br />task 1"]:::worker
+        W2["Worker B<br />task 2"]:::worker
+      end
+      subgraph GateBox["Quality gate — no-mistakes / ship-and-sleep · daemon · lean"]
         direction TB
-        Orch["Orchestrator<br />Edit / Write DENIED"]:::worker
-        subgraph Panel["Subagent panel · steerable + interruptible"]
-          direction LR
-          W1["Worker A<br />task 1"]:::worker
-          W2["Worker B<br />task 2"]:::worker
-          Rev["Fresh reviewer<br />diff-only, no worker chat"]:::review
-          Scribe["Scribe<br />durable knowledge only"]:::scribe
-        end
+        Gate{{"pipeline → checks-passed<br />rebase·review·test·lint·docs"}}:::gate
+        GRev["Independent reviewer<br />own subprocess · diff-only<br />different model"]:::review
+        GateRepo["bare gate repo<br />refuses raw pushes"]:::infra
+        Gate --> GRev
+        Gate --> GateRepo
       end
       Hook["SessionStart hook"]:::gate
       subgraph Disk["On disk"]
         direction TB
         Canopy[[".canopy/<br />brief.md · state.json · tasks/"]]:::state
-        Pool["treehouse pool<br />worktree A · worktree B · idle…"]:::infra
-        Know["AGENTS.md<br />durable project knowledge"]:::state
+        Pool["treehouse pool<br />leased worktrees"]:::infra
+        Know["AGENTS.md<br />durable knowledge"]:::state
       end
-      Watch["External gh poll process<br />survives /clear + compact"]:::ship
+      Watch["Merge watcher<br />external gh-axi tick · survives /clear"]:::ship
     end
 
     subgraph GH["GitHub (cloud)"]
@@ -434,24 +517,22 @@ flowchart TB
       CI["CI checks"]:::gate
     end
 
-    You -->|"navigate · steer · interrupt"| Panel
-    Hook -.->|"re-inject state on clear / compact"| Orch
+    You -->|"navigate · steer · interrupt"| Workers
+    Hook -.->|"re-inject ≤10k state digest on clear/compact"| Orch
     Orch <-->|"read / write state"| Canopy
-    Orch -->|"spawn · 1 per task"| W1
+    Orch -->|"spawn claude --bg · 1 per task"| W1
     Orch -->|"spawn"| W2
-    Orch -->|"spawn fresh · diff only"| Rev
     Orch -->|"lease / return"| Pool
-    W1 -->|"edits in"| Pool
-    W2 -->|"edits in"| Pool
-    Rev -->|"reads git diff of"| Pool
-    Rev -->|"SendMessage: fix these"| W1
-    Orch -->|"gh pr create"| PR
+    W1 -->|"implement + commit in"| Pool
+    W2 -->|"implement + commit in"| Pool
+    W1 -->|"axi run --intent"| Gate
+    GRev -.->|"issues → fix"| W1
+    GateRepo -->|"checks-passed → push"| PR
     PR -->|"triggers"| CI
     Watch -->|"polls all open"| PR
     Watch -->|"on merge → treehouse return + status=done"| Canopy
-    Orch -->|"on /scribe · distill learnings"| Scribe
-    Scribe -->|"reads task outcomes"| Canopy
-    Scribe -->|"append durable, NON-task knowledge"| Know
+    Orch -->|"on /scribe"| Scribe
+    Scribe -->|"append durable knowledge"| Know
     Know -.->|"auto-loaded by every agent"| CC
 
     classDef human fill:#c9a227,stroke:#c9a227,color:#1a1a1a,font-weight:bold;
@@ -465,9 +546,9 @@ flowchart TB
             </pre>
           </div>
           <p class="text-xs text-base-content/60 mt-3">
-            The one thing to notice: the <span style="color:#9fd06a">merge-watcher</span> lives <strong>outside</strong> the Claude session — because anything
-            in-session (Monitor, a loop) dies on <code>/clear</code>. Everything else lives inside the orchestrator session, and the
-            <span style="color:#d98a9e">reviewer</span> only ever touches the git diff, never the worker's reasoning.
+            Three things to notice: workers are <strong>detached <code>claude --bg</code></strong> sessions (survive a <code>/clear</code>, stay steerable); the
+            <span style="color:#d98a9e">independent reviewer</span> + whole pipeline live <strong>inside the external gate</strong> (its heavy LLM tokens never touch the orchestrator);
+            and the <span style="color:#9fd06a">merge-watcher</span> is an external <code>gh-axi</code> tick. The orchestrator itself just holds state and delegates — it stays small and cheap.
           </p>
         </div>
       </div>
@@ -481,12 +562,10 @@ flowchart TB
             <tr><td>Persistent state</td><td>Plain <code>.canopy/</code> files; model re-derives each turn; a SessionStart hook re-injects on compact/clear</td><td><span class="badge badge-warning badge-xs">high / med</span></td></tr>
             <tr><td>Pooled worktrees</td><td>External <code>treehouse get --lease</code> / <code>return</code> / <code>status</code> / <code>prune</code>. Worker cwd = leased path, raw <code>git</code> — <strong>never</strong> Claude's <code>isolation: worktree</code></td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
             <tr><td>Parallel steerable workers</td><td><code>claude --bg</code> detached sessions (survive parent <code>/clear</code>, panes stay in agent view/FleetView), tracked by id in <code>state.json</code>, resumed via attach. Non-isolated in-session subagents are cheaper but die on <code>/clear</code></td><td><span class="badge badge-success badge-xs">high</span></td></tr>
-            <tr><td>Fresh reviewer</td><td>A non-<code>fork</code> <em>named</em> subagent (fresh isolated context), diff-only — never resume the worker into it</td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
-            <tr><td>Modes (<code>/yolo</code>)</td><td>Slash command writes <code>mode</code> to state.json; Guided uses AskUserQuestion (main session only)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
-            <tr><td>Never-exit gate</td><td>Orchestrator loop over state.json; hardened by Stop / SubagentStop exit-2</td><td><span class="badge badge-warning badge-xs">med</span></td></tr>
-            <tr><td>PR automation</td><td><code>gh-axi pr create</code> + <code>gh-axi</code> watch checks to block on CI green (agent-ergonomic GitHub wrapper)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
-            <tr><td>One merge-watcher</td><td>External <code>gh-axi</code> poll loop → on merge, <code>treehouse return</code> + status = done</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
-            <tr><td>Fan-out N tasks</td><td>1 worktree + 1 subagent per task; caps ~20 concurrent / 200 per session; only summaries return</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Independent reviewer + never-exit loop + tests/lint/PR/CI</td><td><strong>The gate: <code>no-mistakes</code> / <code>ship-and-sleep</code></strong> — worker runs <code>axi run --intent</code>; the gate spawns its own fresh diff-only reviewer (point at a different model), loops to <code>checks-passed</code>, git-layer enforced. Canopy builds none of it.</td><td><span class="badge badge-success badge-xs">high · code-read</span></td></tr>
+            <tr><td>Modes (<code>/yolo</code>)</td><td>Slash command writes <code>mode</code> to state.json; Guided surfaces the gate's calls via AskUserQuestion (main session only)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>One merge-watcher</td><td>External <code>gh-axi</code> tick (launchd/cron) → on merge, <code>treehouse return</code> + status = done. (Gate owns push→pr→ci)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Fan-out N tasks</td><td>1 leased worktree + 1 <code>claude --bg</code> worker per task; orchestrator tracks by id in <code>state.json</code>; only summaries return</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -731,6 +810,9 @@ flowchart TB
             <tr><td>Merge-watcher — daemon?</td><td>✅ No — an OS-scheduled launchd/cron tick (webhook at org scale)</td></tr>
             <tr><td>State: source of truth?</td><td>✅ <code>.canopy/</code> files; SessionStart hook is a ≤10k digest redundancy</td></tr>
             <tr><td>Reviewer scope?</td><td>✅ Option C — the worker runs tests &amp; lint itself (no extra agent/context); the fresh reviewer stays diff-only</td></tr>
+            <tr><td>Fork firstmate or build clean?</td><td>✅ <strong>Build clean</strong> (after code read) — firstmate's ~22k-token always-on cost is inherent.</td></tr>
+            <tr><td>Reviewer + quality loop — build it?</td><td>✅ <strong>No — use <code>no-mistakes</code></strong> (MIT, lean, standalone). It already is the independent diff-only reviewer + the review→test→lint→docs→push→pr→ci pipeline, git-layer enforced. Canopy drives it; builds neither.</td></tr>
+            <tr><td>The "goal" gate?</td><td>✅ Subsumed — it's <code>no-mistakes</code>' pipeline (checks-passed verdict), not a separate thing to build.</td></tr>
           </tbody>
         </table>
       </div>
@@ -740,17 +822,16 @@ flowchart TB
     <section class="mb-6">
       <div class="flex items-center gap-2 mb-4">
         <h2 class="text-2xl font-bold">Still needs you</h2>
-        <span class="badge badge-warning badge-soft">5 open</span>
+        <span class="badge badge-warning badge-soft">4 open</span>
       </div>
       <div class="overflow-x-auto rounded-box border border-base-content/10 bg-base-200">
         <table class="table">
           <thead><tr><th>#</th><th>Question</th></tr></thead>
           <tbody>
-            <tr><td>1</td><td class="text-warning"><strong>The big one — fork firstmate as the base and build the reviewer + quality loop on top, or build clean?</strong> Research says extend firstmate.</td></tr>
+            <tr><td>1</td><td class="text-warning"><strong>Gate engine — upstream <code>no-mistakes</code>, or your own <code>ship-and-sleep</code>?</strong> ship-and-sleep already forks no-mistakes + adds an adversarial skeptic + convergence loop + risk routing — closer to Canopy's ambitions. This is the new unblocker.</td></tr>
             <tr><td>2</td><td><strong>Third mode</strong> — YOLO &amp; Guided are set. What's the 3rd? (plan-only / dry-run that stops before edits?)</td></tr>
-            <tr><td>3</td><td><strong>Memory dir name</strong> — confirm <code>.canopy/</code>, or pick <code>.grove</code> / <code>.baton</code> / <code>.ledger</code> / your own? (moot if we adopt firstmate's state layout)</td></tr>
-            <tr><td>4</td><td><strong>The "goal" gate</strong> — existing tool/skill or build it? What does it check that the diff reviewer doesn't?</td></tr>
-            <tr><td>5</td><td><strong>Worker spawn + Phase 0b</strong> — go with <code>claude --bg</code> workers (survive <code>/clear</code>, higher cost) as the default? And run Phase 0b to confirm <code>--bg</code> doesn't collide with a treehouse lease.</td></tr>
+            <tr><td>3</td><td><strong>Memory dir name</strong> — confirm <code>.canopy/</code>, or pick <code>.grove</code> / <code>.baton</code> / <code>.ledger</code> / your own?</td></tr>
+            <tr><td>4</td><td><strong>Worker spawn + Phase 0b</strong> — go with <code>claude --bg</code> workers (survive <code>/clear</code>, higher cost) as the default? And run Phase 0b to confirm <code>--bg</code> doesn't collide with a treehouse lease.</td></tr>
           </tbody>
         </table>
       </div>
