@@ -215,6 +215,8 @@ Ran the two scary unknowns with real `treehouse` + real Claude subagents in a th
 - **Context isolation:** a fresh reviewer given only the diff had zero knowledge of the worker's in-context secret. → **Independent review holds by construction** (never `fork`).
 - Bonus: Claude-managed worktrees auto-clean when left unchanged.
 
+**Phase 0b (also passed):** a live `claude --bg` session launched with cwd = a treehouse-leased worktree (no `-w`) ran *inside* the leased worktree, made its edit there, and created no `.claude/worktrees/`. The CLI confirms `-w/--worktree` is opt-in. → `claude --bg` workers are safe under the same ground rule; no collision.
+
 ### Phase 1 — walking skeleton
 1. `.canopy/` with `brief.md` + `state.json` + one hand-written `tasks/<id>.json`.
 2. Orchestrator = `claude --agent orchestrator` (Edit/Write denied), spawns ONE worker subagent pointed at a treehouse-leased worktree.
@@ -267,12 +269,15 @@ Ran the two scary unknowns with real `treehouse` + real Claude subagents in a th
 
 ## 14. Open questions
 
-1. **Review budget** — 1 bounded independent review per task (default), or 0 (pure deterministic checks + CI + human review) for maximum thrift? And which cheap model for the reviewer?
-2. **Third mode** — what is it? (candidate: plan-only / dry-run that stops before edits.)
-3. **Name** — confirm `Canopy` / `.canopy/`, or `.grove` / `.baton` / `.ledger` / other.
-4. **Worker spawn + Phase 0b** — confirm `claude --bg` as the default worker (survives `/clear`, but ~linear cost and local-only), and run Phase 0b to verify `--bg` doesn't auto-create a rival worktree vs the treehouse lease.
+**None open — all resolved.**
+- Review budget → **1 bounded independent review** per task (cheap model, default Haiku, configurable).
+- Modes → **two only**: YOLO (autonomous) + Guided (human-gated). No third mode.
+- Name → **`Canopy` / `.canopy/`** confirmed.
+- Worker spawn → **`claude --bg`** (cwd = leased worktree, no `-w`); **Phase 0b passed** (§10) — no collision.
+- Quality gate → **lean in-house** (deterministic checks + one bounded review); `no-mistakes`/`ship-and-sleep` rejected as too token-heavy (§7, §8.5).
+- Base → **build clean** (not fork firstmate) (§7).
 
-*(Resolved: fork-vs-build → build clean (§7). Quality gate → lean in-house (deterministic checks + one bounded review); `no-mistakes`/`ship-and-sleep` rejected as too token-heavy (§7, §8.5).)*
+Next step: scaffold the Phase-1 walking skeleton (§10) in the `canopy` repo, with Grid as the test subject.
 
 ---
 

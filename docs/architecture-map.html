@@ -357,11 +357,10 @@ flowchart TD
               decide; it delegates your call to the worker, then re-reviews.</p>
           </div>
         </div>
-        <div class="card card-border bg-base-200 border-dashed">
+        <div class="card card-border bg-base-200">
           <div class="card-body">
-            <div class="flex items-center gap-2"><span class="badge badge-ghost">Mode 3</span><h3 class="font-semibold">still unnamed</h3></div>
-            <p class="text-sm text-base-content/75 mt-1">YOLO is confirmed <strong>global</strong>. You said there are three modes but only
-              two are defined. What's the third? (e.g. a <em>plan-only / dry-run</em> mode that stops before any edit?) <span class="text-warning">Need your call.</span></p>
+            <div class="flex items-center gap-2"><span class="badge badge-success badge-soft">Decided</span><h3 class="font-semibold">Just two modes</h3></div>
+            <p class="text-sm text-base-content/75 mt-1">No third mode. YOLO (autonomous) and Guided (human-gated) are the whole set — <code>/yolo</code> is a global toggle between them.</p>
           </div>
         </div>
       </div>
@@ -653,6 +652,9 @@ flowchart TB
           <span class="text-sm"><strong>Design rule that falls out:</strong> workers <u>never</u> use Claude's <code>isolation: worktree</code> / EnterWorktree.
             The orchestrator leases with <code>treehouse</code> and spawns a plain worker whose cwd is the leased path, using raw <code>git</code>. Bonus finding: Claude-managed worktrees auto-clean themselves when left unchanged.</span>
         </div>
+        <div role="alert" class="alert alert-success alert-soft mt-3">
+          <span class="text-sm"><strong>Phase 0b (also passed, live test):</strong> ran a real <code>claude --bg</code> session with cwd = a treehouse-leased worktree, no <code>-w</code>. It ran <em>inside</em> the leased worktree, made its edit there, and created <strong>no</strong> <code>.claude/worktrees/</code>. The CLI confirms why: <code>-w/--worktree</code> is opt-in. So <code>--bg</code> workers are safe — same rule, no collision.</span>
+        </div>
       </div>
 
       <!-- MERGE WATCHER DESIGN CALL -->
@@ -825,6 +827,10 @@ flowchart TB
             <tr><td>Fork firstmate or build clean?</td><td>✅ <strong>Build clean</strong> (after code read) — firstmate's ~22k-token always-on cost is inherent.</td></tr>
             <tr><td>Quality gate — heavy or lean?</td><td>✅ <strong>Lean, in-house</strong>. Considered <code>no-mistakes</code>/<code>ship-and-sleep</code> but rejected — too slow &amp; token-heavy (multi-round LLM pipeline). Instead: worker runs deterministic checks (test/lint/typecheck/build = 0 LLM tokens) + ONE bounded independent diff-review (cheap model, ~2 rounds) + CI backstop.</td></tr>
             <tr><td>The "goal" gate?</td><td>✅ It's the deterministic checks + CI green (pass/fail), plus the one review verdict — nothing heavy to build.</td></tr>
+            <tr><td>Third mode?</td><td>✅ No — just YOLO (autonomous) + Guided (human-gated).</td></tr>
+            <tr><td>Worker spawn?</td><td>✅ <code>claude --bg</code> detached (survive <code>/clear</code>), cwd = leased worktree, no <code>-w</code>. <strong>Phase 0b passed</strong> — no collision.</td></tr>
+            <tr><td>Review budget?</td><td>✅ <strong>1 bounded independent review</strong> per task (cheap model, default Haiku — configurable).</td></tr>
+            <tr><td>Memory dir name?</td><td>✅ <code>.canopy/</code> — confirmed.</td></tr>
           </tbody>
         </table>
       </div>
@@ -834,18 +840,10 @@ flowchart TB
     <section class="mb-6">
       <div class="flex items-center gap-2 mb-4">
         <h2 class="text-2xl font-bold">Still needs you</h2>
-        <span class="badge badge-warning badge-soft">4 open</span>
+        <span class="badge badge-success badge-soft">0 open — all decided</span>
       </div>
-      <div class="overflow-x-auto rounded-box border border-base-content/10 bg-base-200">
-        <table class="table">
-          <thead><tr><th>#</th><th>Question</th></tr></thead>
-          <tbody>
-            <tr><td>1</td><td><strong>Review budget</strong> — 1 bounded independent review per task (default), or 0 (pure deterministic + CI + your eyes) for maximum thrift? And which cheap model for the reviewer?</td></tr>
-            <tr><td>2</td><td><strong>Third mode</strong> — YOLO &amp; Guided are set. What's the 3rd? (plan-only / dry-run that stops before edits?)</td></tr>
-            <tr><td>3</td><td><strong>Memory dir name</strong> — confirm <code>.canopy/</code>, or pick <code>.grove</code> / <code>.baton</code> / <code>.ledger</code> / your own?</td></tr>
-            <tr><td>4</td><td><strong>Worker spawn + Phase 0b</strong> — go with <code>claude --bg</code> workers (survive <code>/clear</code>, higher cost) as the default? And run Phase 0b to confirm <code>--bg</code> doesn't collide with a treehouse lease.</td></tr>
-          </tbody>
-        </table>
+      <div role="alert" class="alert alert-success">
+        <span>Every design question is resolved and Phase 0 + 0b are green. The build is fully de-risked and spec'd — ready to scaffold the Phase-1 walking skeleton in the <code>canopy</code> repo (Grid as the test subject).</span>
       </div>
 
       <!-- Q5 trade-off detail -->
