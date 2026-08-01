@@ -20,6 +20,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/checks.sh"
 # shellcheck source=../lib/review.sh
 . "$CANOPY_ROOT/lib/review.sh"
+# shellcheck source=../lib/pr.sh
+. "$CANOPY_ROOT/lib/pr.sh"
 
 usage() {
   cat <<'EOF'
@@ -72,6 +74,13 @@ case "$cmd" in
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;
   review)        canopy_review "$@" ;;
+  pr)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      open)      canopy_pr_open "$@" ;;
+      checks)    canopy_pr_checks "$@" ;;
+      *)         die "unknown 'pr' subcommand: ${sub:-<none>}" ;;
+    esac ;;
   checks)
     sub="${1:-}"; shift || true
     case "$sub" in

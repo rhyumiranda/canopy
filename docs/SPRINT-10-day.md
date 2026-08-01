@@ -71,16 +71,16 @@
 - 📦 **Live-verified:** clean change → `verdict: clean, docs_in_sync: true`; planted `mul()` bug (adds instead of multiplies) → `verdict: issues, severity high`. Cheap Haiku, ~seconds.
 - ↳ Full live fix-loop-to-green + token audit rolls into the Day 6 end-to-end run.
 
-## Day 6 — PR + first full end-to-end 🚩 MILESTONE
+## Day 6 — PR + first full end-to-end 🚩 MILESTONE ✅ DONE
 🎯 Brief → PR, entirely through agents (Phase 1 exit criteria). ↳ PRD §5, §7.7, §12
 
-- [ ] PR body builder: conventional title, what/why, linked items (tags), touched files, repro/test steps, breaking-change flag.
-- [ ] `gh-axi pr create` from the worker's feature branch; store PR number in state; set `pr-open`.
-- [ ] Block on CI green (`gh-axi` watch checks) before declaring the task shippable.
-- [ ] Run the **whole Phase-1 skeleton** on GRID: brief → lease → worker(implement/document/checks) → bounded review → PR → CI green. Human merges manually (watcher is Day 7).
-- [ ] Verify Phase-1 exit criteria: orchestrator never edited; reviewer context provably fresh; lean token spend.
-- 📦 **First real PR opened by Canopy on GRID.**
-- ✅ A GRID brief yields a green, well-formed PR with the orchestrator never touching code; you review + merge it by hand.
+- [x] `lib/pr.sh` `_pr_body`: conventional title (from the worker's commit), Summary, What & why, Files changed (diff --stat), Testing note, Canopy footer.
+- [x] `canopy pr open <id>`: pushes the branch, `gh-axi pr create`, parses + stores PR#, sets `pr-open`.
+- [x] `canopy pr checks <id>`: `gh-axi pr checks` → 0 green/none, 1 fail, 2 pending; gracefully handles "no CI configured".
+- [x] **Live E2E on the testbed** (not Grid, per the safe path): brief → lease → `claude --bg` worker (implement + document + `npm test`) → Haiku review → PR.
+- [x] Phase-1 exit criteria met: orchestrator never edited; review ran on a fresh process; lean spend (worker + one Haiku review).
+- 📦 **First real PR: `rhyumiranda/canopy-testbed#1` "feat: add subtract() to mathlib"** — worker committed in ~18s, `npm test` green (add + subtract), review `clean`, structured PR body.
+- ✅ Met on the testbed end-to-end via the CLI.
 
 ## Day 7 — Merge-watcher (external, durable)
 🎯 Merges auto-close the loop without a babysat daemon. ↳ PRD §7.8, §10, §13
