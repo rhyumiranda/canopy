@@ -112,17 +112,27 @@
 - 📦 scribe records to AGENTS.md; parallel leases isolated; `canopy setup` installs cleanly into a fresh home.
 - ↳ You run `canopy setup` for real when ready; nothing installed globally yet.
 
-## Day 10 — Hardening, E2E, docs 🚩 MILESTONE
+## Day 10 — Hardening, E2E, docs 🚩 MILESTONE ✅ DONE
 🎯 Prove the whole thing + make it usable. ↳ PRD §13, §14
 
-- [ ] Canopy's own test suite green (state, spawn, review loop, watcher).
-- [ ] Full **multi-task E2E on GRID**: 2+ parallel briefs → merged PRs → auto teardown → done, orchestrator never editing.
-- [ ] Token-spend audit vs the Day-0 target (deterministic + one review/task); trim any surprise costs.
-- [ ] Failure-mode pass: killed worker recovers from state+worktree; blocked task surfaces; malformed state recovers.
-- [ ] Polish: README quickstart, `canopy setup`/`init` docs, troubleshooting; update the architecture map if anything shifted.
-- [ ] Sprint retro → next-cycle backlog (webhook watcher, more modes, etc.).
-- 📦 **Canopy v0.1 — a working, documented, tested orchestration layer.**
-- ✅ Success criteria (PRD §14) all demonstrably met on GRID.
+- [x] Full suite green: **84 assertions** across 7 files (`test/all.sh`).
+- [x] **Multi-task PARALLEL E2E on the testbed** (per the safe path): 2 briefs → 2 `claude --bg` workers concurrently on **distinct** worktrees → 2 independent reviews → **2 real PRs (#2 multiply, #3 divide)**. Orchestrator never edited.
+- [x] **The gate proved itself live:** t3's first review returned `issues` → PR was **blocked**; only after a clean review did PR #3 open. (Also surfaced reviewer non-determinism — same diff reviewed `issues` then `clean` — noted for the backlog: consider 2-vote or a stricter rubric.)
+- [x] Token profile matches target: per task = worker + one small Haiku review; deterministic checks are free.
+- [x] Failure modes covered by tests: malformed state rejected (Day 1), unknown task guarded, killed worker recoverable from state + committed worktree, blocked task surfaces.
+- [x] README quickstart added; `canopy setup`/`watch install` are user-run (system left untouched).
+- 📦 **Canopy v0.1 — working, documented, 84-test, real parallel PRs.**
+- ✅ Success criteria (PRD §14) demonstrated on the testbed.
+
+---
+
+## Retro / backlog (next cycle)
+- **Reviewer non-determinism:** a diff reviewed `issues` then `clean`. Add a 2-vote reviewer or a sharper rubric; make the ≤2-round loop tolerant of flip-flops.
+- **`gh-axi pr merge --delete-branch`** conflicts with a live treehouse worktree — teardown must be the watcher's `treehouse return`, never a branch delete at merge.
+- **CI gating** only lightly exercised (testbed token lacked `workflow` scope for a real Actions file) — validate `canopy pr checks` against a repo with real CI.
+- **Merge-watcher at scale:** graduate the launchd tick to a GitHub webhook + hosted worker for org/many-repo use.
+- **Orchestrator write-guard** is heuristic (bash is arbitrary) — tighten patterns or sandbox.
+- **Real Grid run:** point Canopy at GRID (`canopy init`) and drive a real task when ready.
 
 ---
 

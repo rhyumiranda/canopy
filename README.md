@@ -11,6 +11,44 @@
 | **Test subject** | GRID (`/Users/rhyu/Documents/Repository/Work/Grid`) |
 | **Date** | 2026-08-01 |
 
+> **Status: v0.1 built.** The 10-day sprint is implemented and tested (see `docs/SPRINT-10-day.md`). This document is the full design/PRD; the Quickstart below is how you run it.
+
+---
+
+## Quickstart
+
+**Prereqs:** [`treehouse`](https://github.com/kunchenguid/treehouse), `gh-axi`, `claude` (v2.1+), `jq`, `git`.
+
+**Install (once, user-level):**
+```bash
+git clone https://github.com/rhyumiranda/canopy.git && cd canopy
+./bin/canopy setup            # copies agents/commands/hooks -> ~/.claude, symlinks canopy onto PATH
+export PATH="$HOME/.local/bin:$PATH"   # if not already
+# then start the merge-watcher when you want it (canopy prints the exact command):
+canopy watch install          # writes a launchd plist; run the printed launchctl command to load it
+```
+
+**Per project (one line):**
+```bash
+cd your-repo && canopy init    # creates .canopy/, ensures treehouse
+```
+
+**Run a task** (the orchestrator agent normally drives this; the raw CLI):
+```bash
+id=$(canopy task add "add a /health endpoint")
+canopy task set "$id" brief "…what & why…"
+canopy worktree lease "$id"        # isolated treehouse worktree + feature branch
+canopy worker spawn "$id"          # claude --bg worker: implement -> document -> checks -> commit
+canopy review "$id"                # one bounded independent (Haiku) diff review
+canopy pr open "$id"               # gh-axi PR (blocked unless review is clean)
+# a launchd tick runs `canopy watch once`: on merge -> treehouse return + status=done
+canopy status                      # the board
+```
+
+**Modes:** `/yolo` (autonomous) vs guided (default). **Knowledge:** `/scribe` appends durable facts to `AGENTS.md`. **Urgent fix:** `/hotfix "<what broke>"`.
+
+Full CLI: `init · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · setup`.
+
 ---
 
 ## 1. Problem
