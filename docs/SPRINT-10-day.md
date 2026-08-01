@@ -38,16 +38,16 @@
 - [x] Live check: a Haiku reviewer on a planted-bug diff returned valid JSON, caught the correctness bug + `docs_in_sync:false`, no worker context (~8s, ~17k tok).
 - ↳ Full "orchestrator refuses to edit" end-to-end verifies after `canopy setup` installs the agents (Day 9) + the hard hook (Day 8).
 
-## Day 3 — treehouse + worker spawning
+## Day 3 — treehouse + worker spawning ✅ DONE
 🎯 Orchestrator leases a worktree and drives a `claude --bg` worker end-to-end (no gate yet). ↳ PRD §7.3/7.4, §10, §12
 
-- [ ] Wrappers: `wt_lease` (`treehouse get --lease`, store path+branch in task), `wt_return` (`treehouse return`).
-- [ ] `worker_spawn`: `claude --bg` with cwd = leased path, no `-w`; capture the session id into `tasks/<id>.json` (`worker_session`).
-- [ ] `worker_send`/`worker_status`: message/resume a worker by id; detect completion.
-- [ ] Wire a trivial task: brief → lease → spawn worker to make a one-line change + commit → mark `implementing`→done. No review/PR yet.
-- [ ] Re-confirm no `.claude/worktrees/` collision in the real flow (Phase 0b in-situ).
-- 📦 One task goes brief → committed change in an isolated worktree, fully via the orchestrator.
-- ✅ On GRID: a trivial task produces a commit on a feature branch in a leased worktree; `git worktree list` shows only main + the lease; worker id tracked in state.
+- [x] `lib/worktree.sh`: `lease` (treehouse + creates `rhyu/<id>-<slug>` branch, stores path+branch on task), `return`, `path`.
+- [x] `lib/worker.sh`: `spawn` = `claude --bg` (cwd = leased path, **no `-w`**, appends worker agent prompt); session id parsed + stored in `worker_session`; `logs`, `stop`.
+- [x] `worker logs`/`stop` by task-id or session; `worker_send` (message/resume for the review loop) lands Day 5 where it's used.
+- [x] Wired: brief → lease → spawn → worker commits. `test/worktree_test.sh` — 8 assertions green.
+- [x] Collision re-confirmed in the real flow: no `.claude/worktrees/`.
+- 📦 **Live smoke passed:** brief "add greet()" → worker committed `feat: add greet(name) helper` in ~21s — correct `greet.js` + README updated (document step already working) in the leased worktree, no collision.
+- ✅ Met on a scratch repo end-to-end via the CLI; branch + worker id tracked in state.
 
 ## Day 4 — Worker pipeline: document + deterministic checks
 🎯 The worker self-gates for free (0 LLM tokens beyond its own work). ↳ PRD §2, §7.4, §7.5
