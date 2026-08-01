@@ -256,8 +256,9 @@ flowchart TD
         <div class="card card-border bg-base-200">
           <div class="card-body">
             <h3 class="card-title text-base"><span class="badge badge-warning badge-sm">1</span> Orchestrator <span class="badge badge-xs badge-ghost">Claude Code</span></h3>
-            <p class="text-sm text-base-content/75">This very Claude Code session — your seat. Delegates via subagents, never edits code
-              itself. The only place decisions come back to. Clearing it must not lose work — that is why <code>.canopy/</code> exists.</p>
+            <p class="text-sm text-base-content/75">This very Claude Code session — your seat. Delegates via subagents. It doesn't edit the <em>project's</em> code
+              (that goes through a worker — isolated + reviewed), but it <strong>does</strong> manage <code>.canopy/</code> state and Canopy's own config.
+              Escape hatch: <code>/hotfix</code> spawns a fast worker; and you can always open a plain session. Never truly locked out.</p>
           </div>
         </div>
 
@@ -461,6 +462,16 @@ flowchart TD
           <li><strong>Workers never use Claude's <code>isolation: worktree</code> / EnterWorktree.</strong> The orchestrator leases with <code>treehouse</code>, spawns a plain worker whose cwd is the leased path, and the worker uses raw <code>git</code>. (Opting into Claude's isolation spawns a rival <code>.claude/worktrees/</code> tree — proven in Phase 0.)</li>
           <li><strong>The reviewer is never a <code>fork</code> subagent.</strong> A plain (non-fork) subagent starts with clean context and sees only the diff — that's the independence guarantee, proven in Phase 0.</li>
           <li><strong>The merge-watcher lives outside the session</strong> as an external <code>gh-axi</code> process — anything in-session dies on <code>/clear</code>.</li>
+        </ul>
+      </div>
+
+      <div class="rounded-box border border-info/40 bg-info/5 p-4 mb-5">
+        <div class="flex items-center gap-2 mb-2"><span class="badge badge-info badge-sm">"Orchestrator can't edit" — you're not stuck</span></div>
+        <p class="text-sm text-base-content/85 mb-2">The rule protects one thing: <strong>every change to project code goes through a worker</strong>, so it's isolated in a worktree and reviewed — the orchestrator editing in its own cwd would pollute main and skip the gate. It is <em>not</em> meant to strand you. Three ways out:</p>
+        <ul class="text-sm text-base-content/85 space-y-1 list-disc pl-5">
+          <li><strong>Scoped, not total:</strong> the orchestrator freely edits <code>.canopy/</code> state and Canopy's own config — only the <em>project working tree</em> is off-limits to it.</li>
+          <li><strong><code>/hotfix "&lt;what broke&gt;"</code>:</strong> spawns a <em>fast</em> worker (fresh worktree, YOLO, review budget 0) for urgent fixes — still isolated, but immediate. Delegating is one command.</li>
+          <li><strong>Always an exit:</strong> open a plain Claude session or your editor to fix anything directly; hand-edit <code>.canopy/state.json</code> if the orchestration itself wedges. Everything is just files + git.</li>
         </ul>
       </div>
 

@@ -80,7 +80,12 @@ Diagrams (flow + runtime topology): `docs/architecture-map.html`.
 ## 7. Functional requirements
 
 ### 7.1 Orchestrator
-Runs as `claude` with Edit/Write denied (`permissions.deny` or a locked `--agent`). Reads `.canopy/state.json` at the top of every turn. Delegates all code work to `claude --bg` workers; aggregates results. Surfaces to the human only when a decision needs input (Guided mode).
+Runs as `claude`. Reads `.canopy/state.json` at the top of every turn. Delegates all **project-code** work to `claude --bg` workers so every change is isolated in a worktree + reviewed; aggregates results. Surfaces to the human only when a decision needs input (Guided mode).
+
+**"Never edits" is scoped, not total — and has an escape hatch** (addresses the "what if I'm stuck" risk):
+- The edit restriction covers only the **project working tree**. The orchestrator freely edits `.canopy/` state and Canopy's own config. Implement via `permissions.deny` on Edit/Write to the repo tree (allow `.canopy/`), or a locked `--agent`.
+- `/hotfix "<what broke>"` spawns a *fast* worker (fresh worktree, YOLO, review budget 0) for urgent fixes — still isolated, but immediate.
+- Fallback: the operator can always open a plain Claude session / editor to fix anything, and hand-edit `.canopy/state.json` if the orchestration wedges. Everything is files + git, so nothing is ever truly locked.
 
 ### 7.2 `.canopy/` state (source of truth)
 ```
