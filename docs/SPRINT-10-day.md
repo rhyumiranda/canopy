@@ -25,18 +25,18 @@
 - 📦 `canopy init` verified on GRID (state.json correct, board works); Grid left pristine.
 - ✅ Met: init → `.canopy/` exists, board prints, state survives a fresh process.
 
-## Day 2 — Agent definitions (the playbook)
+## Day 2 — Agent definitions (the playbook) ✅ DONE
 🎯 The three roles exist as Claude Code agents; orchestrator can't edit. ↳ PRD §6, §7.1/7.4/7.5, §8, §10
 
-- [ ] `orchestrator` agent def: system prompt = the playbook (read `.canopy/` first every turn, delegate, drive the loop).
-- [ ] **Scoped** edit denial: deny Edit/Write to the *project working tree* only; ALLOW `.canopy/` + Canopy config. (Not a total lock — see the escape hatch.)
-- [ ] `/hotfix "<what broke>"` command: spawn a fast worker (fresh worktree, YOLO, review budget 0) for urgent fixes — isolated but immediate. Verify the operator is never stranded (plain session + hand-editable `.canopy/state.json` as fallback).
-- [ ] `worker` agent def: implement → document the change → run deterministic checks → commit on a feature branch; cwd = leased worktree; raw `git`; NEVER `isolation: worktree`/`-w`.
-- [ ] `reviewer` agent def: fresh, non-`fork`, diff-only, cheap model (default Haiku); returns a structured verdict (issues[] or clean) + docs-in-sync check.
-- [ ] Encode Ground Rules (§10) into each agent's prompt.
-- [ ] Verify orchestrator truly cannot edit (attempt an edit → denied).
-- 📦 Agents load; a manual `claude --agent orchestrator` session reads `.canopy/` and refuses to edit.
-- ✅ Orchestrator edit attempt is blocked; reviewer spawned manually on a sample diff returns a valid structured verdict with no worker context.
+- [x] `agents/orchestrator.md`: playbook prompt (read `.canopy/` first, delegate, drive the loop, guided/yolo).
+- [x] **Scoped** edit denial: orchestrator's `tools:` list has **no Edit/Write** → it structurally can't hand-edit files; mutates `.canopy/` only via the `canopy` CLI. (Hard Bash-write-to-project-tree hook = Day 8.)
+- [x] `commands/hotfix.md`: fast isolated worker escape hatch. Fallbacks (plain session, hand-edit `state.json`) documented in PRD §7.1.
+- [x] `agents/worker.md`: implement → document → deterministic checks → commit; forbids `-w`/extra worktrees.
+- [x] `agents/reviewer.md`: fresh non-`fork`, diff-only, Haiku, structured JSON verdict + docs-in-sync.
+- [x] Ground rules encoded in each prompt.
+- [x] `test/agents_test.sh` — 14 assertions green (frontmatter, scoped-deny, worktree rule, verdict schema).
+- [x] Live check: a Haiku reviewer on a planted-bug diff returned valid JSON, caught the correctness bug + `docs_in_sync:false`, no worker context (~8s, ~17k tok).
+- ↳ Full "orchestrator refuses to edit" end-to-end verifies after `canopy setup` installs the agents (Day 9) + the hard hook (Day 8).
 
 ## Day 3 — treehouse + worker spawning
 🎯 Orchestrator leases a worktree and drives a `claude --bg` worker end-to-end (no gate yet). ↳ PRD §7.3/7.4, §10, §12
