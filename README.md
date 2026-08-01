@@ -81,9 +81,12 @@ canopy watch install                   # writes a launchd plist; run the printed
 **Per project:**
 ```bash
 cd your-repo && canopy init            # creates .canopy/, ensures treehouse
+canopy start                           # opens Claude Code AS the orchestrator
 ```
 
-**Run a task** (the orchestrator agent normally drives this; here's the raw flow):
+`canopy start` is the whole point: it launches Claude Code with the orchestrator playbook loaded, reads `.canopy/`, recovers any in-flight work, and then just waits for your intent — you tell it what you want, it drives the rest. (`canopy init` alone only makes the repo ready; `start` is what makes Claude know what to do.)
+
+**Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
 id=$(canopy task add "add a /health endpoint")
 canopy task set "$id" brief "…what & why…"

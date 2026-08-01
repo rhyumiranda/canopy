@@ -30,6 +30,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/setup.sh"
 # shellcheck source=../lib/recover.sh
 . "$CANOPY_ROOT/lib/recover.sh"
+# shellcheck source=../lib/start.sh
+. "$CANOPY_ROOT/lib/start.sh"
 
 usage() {
   cat <<'EOF'
@@ -39,6 +41,7 @@ usage: canopy <command> [args]
 
 commands:
   init                 Initialize .canopy/ in the current repo (idempotent)
+  start                Open Claude Code AS the orchestrator (loads the playbook, recovers)
   status               Print the task board
   task add <title>     Add a task (prints its id)
   task set <id> <k> <v>  Set a field on a task
@@ -54,6 +57,7 @@ EOF
 cmd="${1:-}"; shift || true
 case "$cmd" in
   init)          canopy_init "$@" ;;
+  start)         canopy_start "$@" ;;
   status)        state_board ;;
   task)
     sub="${1:-}"; shift || true
