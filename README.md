@@ -71,7 +71,8 @@ Two diagrams (flow + runtime topology) live in `.lavish/orchestration-layer-arch
 
 | Decision | Choice |
 |---|---|
-| Base: fork or build clean | **Build clean**, harvest firstmate's MIT scripts. Code read confirmed firstmate's ~22k-token always-on contract is inherent to its distro model (poor fit for a cost-sensitive tool). Harvest: `fm-review-diff.sh`, `fm-pr-poll.sh`/`fm-pr-lib.sh` (restart-safe merged-PR watcher), `fm-project-mode.sh` (`+yolo` parse), treehouse-in-worker leasing guards. See `docs/research/firstmate-evaluation.md`. |
+| Base: fork or build clean | **Build clean** — firstmate's ~22k-token always-on contract is inherent to its distro model (poor fit for a cost-sensitive tool). See `docs/research/firstmate-evaluation.md`. |
+| Quality gate (reviewer + loop + PR/CI) | **Use `no-mistakes`** (MIT, lean, standalone; firstmate is a consumer of it). It already provides the independent fresh diff-only reviewer + the fixed pipeline `intent → rebase → review → test → document → lint → push → pr → ci`, git-layer enforced (a bare gate repo refuses raw pushes), CI-green gated. Canopy **drives** it, building neither the reviewer nor the pipeline. Point its pipeline `agent` at a different model than the worker for model-level adversarial independence. Engine choice (upstream `no-mistakes` vs the user's `ship-and-sleep` fork) is Open Question 1. See `docs/research/no-mistakes-evaluation.md`. |
 | Orchestrator | A Claude Code CLI session (not the Agent SDK — the SDK has no human-steering UI). Delegates; never edits code. |
 | Worktrees | `treehouse` worktree **pool** — lease per task, `return` on merge (keeps build cache). |
 | Worker isolation | cwd = the treehouse-leased path, raw `git`. **Never** Claude's `isolation: worktree`. |
@@ -130,10 +131,11 @@ Placement: `.canopy/` is **data**; it is NOT under `.claude/`. The SessionStart 
 - Re-invoked (attach / message by id) whenever the reviewer or a gate sends work back.
 - Detached so an orchestrator `/clear` doesn't kill it (see §8.12). Even if a worker dies, its committed worktree + `state.json` make progress recoverable — re-spawn on the same leased worktree.
 
-### 8.5 Independent reviewer
-- Fresh non-`fork` subagent; reads only `git diff`; never receives the worker's chat.
-- Emits a pass/fail verdict + specific issues.
-- Never fixes-then-approves its own suggestions in a way that collapses independence (in YOLO it may fix, but the *review* verdict must come from a fresh read).
+### 8.5 Independent reviewer + quality gate — **provided by `no-mistakes`, not built**
+- The independent fresh diff-only reviewer, the never-exit review→fix loop, tests, lint, docs, push, PR, and CI-green gating are all `no-mistakes` (see the §7 decision).
+- Integration: worker commits on a feature branch → Canopy calls `no-mistakes axi run --intent "…"` and drives the respond loop (or `--yes`) to `checks-passed`.
+- Independence is git-layer enforced (bare gate repo refuses raw pushes). Set the pipeline `agent` to a different model than the worker for model-level adversarial independence.
+- Canopy's job here is only to *drive* the gate and route its verdicts — not to implement review/test/lint/PR.
 
 ### 8.6 Modes (global)
 - `/yolo`: reviewer resolves architectural decisions and fixes them itself; no human gate.
@@ -263,12 +265,12 @@ Ran the two scary unknowns with real `treehouse` + real Claude subagents in a th
 
 ## 14. Open questions
 
-1. **Third mode** — what is it? (candidate: plan-only / dry-run that stops before edits.)
-2. **Name** — confirm `Canopy` / `.canopy/`, or `.grove` / `.baton` / `.ledger` / other.
-3. **The "goal" gate** — adopt an existing tool/skill or build it? What does it check beyond the diff reviewer — just the pass/fail verdict, or a separate rule set?
+1. **Gate engine** — upstream `no-mistakes`, or the user's own `ship-and-sleep` (forks no-mistakes + adds an adversarial skeptic + convergence loop + risk routing)? The new unblocker.
+2. **Third mode** — what is it? (candidate: plan-only / dry-run that stops before edits.)
+3. **Name** — confirm `Canopy` / `.canopy/`, or `.grove` / `.baton` / `.ledger` / other.
 4. **Worker spawn + Phase 0b** — confirm `claude --bg` as the default worker (survives `/clear`, but ~linear cost and local-only), and run Phase 0b to verify `--bg` doesn't auto-create a rival worktree vs the treehouse lease.
 
-*(Resolved: fork-vs-build → build clean + harvest firstmate MIT scripts — see §7 and `docs/research/firstmate-evaluation.md`.)*
+*(Resolved: fork-vs-build → build clean (§7). Reviewer + quality loop + "goal" gate → use `no-mistakes`, not built (§7, §8.5).)*
 
 ---
 
@@ -284,6 +286,8 @@ Canopy is meant for **all** the operator's projects, not just this repo. It ship
 
 ## 16. References
 
+- firstmate code evaluation: `docs/research/firstmate-evaluation.md`
+- no-mistakes (quality gate) evaluation: `docs/research/no-mistakes-evaluation.md`
 - Market landscape & build-vs-adopt: `docs/research/orchestrator-market-research.md`
 - Technical mapping, Phase 0 results, hook contract: `docs/research/orchestrator-technical-research.md`
 - Visual map (2 diagrams): `.lavish/orchestration-layer-architecture.html`
