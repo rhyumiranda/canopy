@@ -72,7 +72,7 @@ Two diagrams (flow + runtime topology) live in `.lavish/orchestration-layer-arch
 | Decision | Choice |
 |---|---|
 | Base: fork or build clean | **Build clean** — firstmate's ~22k-token always-on contract is inherent to its distro model (poor fit for a cost-sensitive tool). See `docs/research/firstmate-evaluation.md`. |
-| Quality gate (reviewer + loop + PR/CI) | **Use `no-mistakes`** (MIT, lean, standalone; firstmate is a consumer of it). It already provides the independent fresh diff-only reviewer + the fixed pipeline `intent → rebase → review → test → document → lint → push → pr → ci`, git-layer enforced (a bare gate repo refuses raw pushes), CI-green gated. Canopy **drives** it, building neither the reviewer nor the pipeline. Point its pipeline `agent` at a different model than the worker for model-level adversarial independence. Engine choice (upstream `no-mistakes` vs the user's `ship-and-sleep` fork) is Open Question 1. See `docs/research/no-mistakes-evaluation.md`. |
+| Quality gate | **Lean, in-house gate.** Evaluated `no-mistakes`/`ship-and-sleep` (independent review, git-layer enforced) but **rejected — too slow and token-heavy**: a multi-round LLM pipeline (review+test+lint+docs+PR) whose spend scales with diff × fix rounds. Instead: (a) the **worker runs deterministic checks itself** — `test · lint · typecheck · build` = 0 LLM tokens — and (b) **one bounded independent diff-review** (fresh non-`fork` reviewer, cheap model, ~2 rounds cap) preserves the no-echo-chamber differentiator; (c) CI re-runs the checks on the PR. See `docs/research/no-mistakes-evaluation.md` for why the heavy gate was rejected. |
 | Orchestrator | A Claude Code CLI session (not the Agent SDK — the SDK has no human-steering UI). Delegates; never edits code. |
 | Worktrees | `treehouse` worktree **pool** — lease per task, `return` on merge (keeps build cache). |
 | Worker isolation | cwd = the treehouse-leased path, raw `git`. **Never** Claude's `isolation: worktree`. |
@@ -131,11 +131,11 @@ Placement: `.canopy/` is **data**; it is NOT under `.claude/`. The SessionStart 
 - Re-invoked (attach / message by id) whenever the reviewer or a gate sends work back.
 - Detached so an orchestrator `/clear` doesn't kill it (see §8.12). Even if a worker dies, its committed worktree + `state.json` make progress recoverable — re-spawn on the same leased worktree.
 
-### 8.5 Independent reviewer + quality gate — **provided by `no-mistakes`, not built**
-- The independent fresh diff-only reviewer, the never-exit review→fix loop, tests, lint, docs, push, PR, and CI-green gating are all `no-mistakes` (see the §7 decision).
-- Integration: worker commits on a feature branch → Canopy calls `no-mistakes axi run --intent "…"` and drives the respond loop (or `--yes`) to `checks-passed`.
-- Independence is git-layer enforced (bare gate repo refuses raw pushes). Set the pipeline `agent` to a different model than the worker for model-level adversarial independence.
-- Canopy's job here is only to *drive* the gate and route its verdicts — not to implement review/test/lint/PR.
+### 8.5 Lean quality gate (built in-house, deterministic-first)
+- **Deterministic checks (0 LLM tokens):** the worker runs `test · lint · typecheck · build` itself and fixes red results in place. CI re-runs them on the PR as a backstop. These catch most problems for free.
+- **One bounded independent review (the only LLM step):** the orchestrator spawns ONE fresh non-`fork` diff-only reviewer (a cheap model is fine), run after the deterministic checks are green. If it finds real issues → worker fixes → re-run the (free) deterministic checks → at most one more review. Cap ~2 review rounds to bound cost.
+- This preserves the no-echo-chamber differentiator (Phase 0 proved the fresh reviewer's context isolation) **without** a multi-round LLM pipeline.
+- Explicitly NOT `no-mistakes`/`ship-and-sleep` — those are too slow/token-heavy (see §7).
 
 ### 8.6 Modes (global)
 - `/yolo`: reviewer resolves architectural decisions and fixes them itself; no human gate.
@@ -265,12 +265,12 @@ Ran the two scary unknowns with real `treehouse` + real Claude subagents in a th
 
 ## 14. Open questions
 
-1. **Gate engine** — upstream `no-mistakes`, or the user's own `ship-and-sleep` (forks no-mistakes + adds an adversarial skeptic + convergence loop + risk routing)? The new unblocker.
+1. **Review budget** — 1 bounded independent review per task (default), or 0 (pure deterministic checks + CI + human review) for maximum thrift? And which cheap model for the reviewer?
 2. **Third mode** — what is it? (candidate: plan-only / dry-run that stops before edits.)
 3. **Name** — confirm `Canopy` / `.canopy/`, or `.grove` / `.baton` / `.ledger` / other.
 4. **Worker spawn + Phase 0b** — confirm `claude --bg` as the default worker (survives `/clear`, but ~linear cost and local-only), and run Phase 0b to verify `--bg` doesn't auto-create a rival worktree vs the treehouse lease.
 
-*(Resolved: fork-vs-build → build clean (§7). Reviewer + quality loop + "goal" gate → use `no-mistakes`, not built (§7, §8.5).)*
+*(Resolved: fork-vs-build → build clean (§7). Quality gate → lean in-house (deterministic checks + one bounded review); `no-mistakes`/`ship-and-sleep` rejected as too token-heavy (§7, §8.5).)*
 
 ---
 

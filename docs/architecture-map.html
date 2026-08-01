@@ -100,14 +100,14 @@
         </div></div>
       </div>
 
-      <div role="alert" class="alert alert-success mb-3">
+      <div role="alert" class="alert alert-warning mb-3">
         <div>
-          <div class="font-bold">Scope-changing find: <code>no-mistakes</code> already IS the reviewer + quality loop — lean, standalone, MIT.</div>
-          <div class="text-sm opacity-90">firstmate's quality gate is a separate tool, <strong><code>no-mistakes</code></strong> (by the same author; firstmate is a <em>consumer</em> of it). It's a Go binary+daemon that puts a bare "gate" repo between your worktree and the real remote and runs a fixed 9-step pipeline: <strong>intent → rebase → review → test → document → lint → push → pr → ci</strong>. Its review is a <strong>genuinely independent</strong> fresh agent (separate subprocess, disposable worktree, sees only the diff, never inherits the worker's context) — exactly Canopy's differentiator, already built and verified in the code. It's <strong>lean</strong> (no always-on contract; heavy LLM work runs in isolated subprocesses whose tokens never touch the orchestrator) and enforces the gate at the <strong>git layer</strong> (raw pushes refused — stronger than a Stop hook).</div>
+          <div class="font-bold">Gate decision (final): build a <em>lean</em> gate — <code>no-mistakes</code> / <code>ship-and-sleep</code> rejected as too slow &amp; token-heavy.</div>
+          <div class="text-sm opacity-90">We evaluated <code>no-mistakes</code> (firstmate's quality gate) — genuinely independent review, git-layer enforced, and it keeps tokens off the orchestrator's context. <strong>But</strong> running review + test + lint + docs + PR through LLM subprocesses and looping to <em>checks-passed</em> costs a lot of total <strong>time and tokens</strong> (spend scales with diff × fix rounds). For a lean, cost-sensitive tool that's the wrong tradeoff — so we don't use it. Instead Canopy runs a <strong>deterministic-first gate</strong>.</div>
         </div>
       </div>
-      <div role="alert" class="alert alert-info alert-soft mb-5">
-        <span class="text-sm"><strong>So Canopy shrinks:</strong> it builds neither the reviewer nor the pipeline — it <em>drives</em> an existing gate. Canopy = the orchestration layer (brief/state, treehouse leasing, parallel <code>claude --bg</code> workers, human steering, merge-watch + teardown, <code>/scribe</code>, modes) that calls <code>no-mistakes axi run --intent "…"</code> per task and loops it to <code>checks-passed</code>. Point its pipeline <code>agent</code> at a <em>different model</em> than the worker → model-level adversarial independence, free. <strong>New decision (open Q):</strong> use upstream <code>no-mistakes</code>, or your own <code>ship-and-sleep</code> (which already forks it + adds an adversarial skeptic + convergence loop + risk routing — closer to Canopy's ambitions)?</span>
+      <div role="alert" class="alert alert-success alert-soft mb-5">
+        <span class="text-sm"><strong>The lean gate:</strong> the <strong>worker runs the deterministic checks itself</strong> — <code>test · lint · typecheck · build</code> — which cost <strong>0 LLM tokens</strong> and catch most problems. The <em>only</em> LLM step is <strong>one bounded independent diff-review</strong> (fresh, diff-only, a cheap model, capped at ~2 rounds), which preserves the no-echo-chamber differentiator without a multi-round pipeline. CI re-runs the deterministic checks on the PR as the backstop. This is Canopy's earlier design — and Phase 0 already proved the fresh reviewer's context isolation. Token profile: near-free checks + ~1 small review per task.</span>
       </div>
 
       <div tabindex="0" class="collapse collapse-arrow bg-base-200 border border-base-content/10 rounded-box mb-4">
@@ -194,20 +194,21 @@ flowchart TD
     Human -->|"1 · intent"| Brief[[".canopy/ — brief + state<br />survives a context wipe"]]:::state
     Brief -->|"2 · lease worktree"| WT["treehouse pool"]:::infra
     WT -->|"3 · spawn claude --bg"| Worker["Worker session<br />implement + commit<br />on a feature branch"]:::worker
-    Worker -->|"4 · axi run --intent"| Gate
+    Worker -->|"4 · run gate"| Det
 
-    subgraph GateBox["Quality gate — no-mistakes / ship-and-sleep · external · lean · MIT"]
+    subgraph GateBox["Lean gate — deterministic first, one bounded review"]
       direction TB
-      Gate{{"Pipeline, loops to checks-passed<br />rebase → review → test → lint → docs"}}:::gate
-      Rev["Independent reviewer<br />own subprocess · diff-only<br />(point at a different model)"]:::review
-      Gate -->|"spawns per run"| Rev
+      Det{{"Deterministic checks · 0 LLM tokens<br />test · lint · typecheck · build"}}:::gate
+      Rev["Independent review · fresh · diff-only<br />1 pass · cheap model · cap ~2 rounds"]:::review
+      Det -->|"green"| Rev
     end
 
+    Det -.->|"red → fix (free)"| Worker
     Rev -->|"issues → fix"| Worker
-    Worker -.->|"re-run gate"| Gate
-    Gate -->|"needs a call · Guided mode"| Human
+    Worker -.->|"re-run (deterministic = free)"| Det
+    Rev -->|"needs a call · Guided mode"| Human
     Human -.->|"decide → delegate"| Worker
-    Gate -->|"checks-passed → push via bare gate repo"| PR["PR opened · CI green"]:::ship
+    Rev -->|"clean → push"| PR["PR opened · CI re-runs checks"]:::ship
     PR --> Watch["Merge watcher<br />one external gh-axi tick, all PRs"]:::state
     Watch -->|"merged"| Teardown["treehouse return<br />+ status = done"]:::infra
     Teardown --> Scribe["/scribe → AGENTS.md<br />durable knowledge"]:::scribe
@@ -493,13 +494,11 @@ flowchart TB
         W1["Worker A<br />task 1"]:::worker
         W2["Worker B<br />task 2"]:::worker
       end
-      subgraph GateBox["Quality gate — no-mistakes / ship-and-sleep · daemon · lean"]
+      subgraph GateBox["Lean gate — deterministic first, bounded review"]
         direction TB
-        Gate{{"pipeline → checks-passed<br />rebase·review·test·lint·docs"}}:::gate
-        GRev["Independent reviewer<br />own subprocess · diff-only<br />different model"]:::review
-        GateRepo["bare gate repo<br />refuses raw pushes"]:::infra
-        Gate --> GRev
-        Gate --> GateRepo
+        Det{{"Deterministic checks · 0 LLM tokens<br />test · lint · typecheck · build"}}:::gate
+        GRev["Independent review · 1 pass<br />fresh · diff-only · cheap model<br />cap ~2 rounds"]:::review
+        Det -->|"green"| GRev
       end
       Hook["SessionStart hook"]:::gate
       subgraph Disk["On disk"]
@@ -525,9 +524,9 @@ flowchart TB
     Orch -->|"lease / return"| Pool
     W1 -->|"implement + commit in"| Pool
     W2 -->|"implement + commit in"| Pool
-    W1 -->|"axi run --intent"| Gate
+    W1 -->|"run gate"| Det
     GRev -.->|"issues → fix"| W1
-    GateRepo -->|"checks-passed → push"| PR
+    GRev -->|"clean → push"| PR
     PR -->|"triggers"| CI
     Watch -->|"polls all open"| PR
     Watch -->|"on merge → treehouse return + status=done"| Canopy
@@ -546,9 +545,10 @@ flowchart TB
             </pre>
           </div>
           <p class="text-xs text-base-content/60 mt-3">
-            Three things to notice: workers are <strong>detached <code>claude --bg</code></strong> sessions (survive a <code>/clear</code>, stay steerable); the
-            <span style="color:#d98a9e">independent reviewer</span> + whole pipeline live <strong>inside the external gate</strong> (its heavy LLM tokens never touch the orchestrator);
-            and the <span style="color:#9fd06a">merge-watcher</span> is an external <code>gh-axi</code> tick. The orchestrator itself just holds state and delegates — it stays small and cheap.
+            Three things to notice: workers are <strong>detached <code>claude --bg</code></strong> sessions (survive a <code>/clear</code>, stay steerable); the gate is
+            <strong>lean and in-house</strong> — the worker runs the <span style="color:#d9b36a">deterministic checks</span> (test/lint/typecheck/build = 0 LLM tokens) and the only LLM step is
+            <strong>one bounded</strong> <span style="color:#d98a9e">independent diff-review</span>; and the <span style="color:#9fd06a">merge-watcher</span> is an external <code>gh-axi</code> tick.
+            No heavy multi-round LLM pipeline — orchestrator and gate both stay cheap.
           </p>
         </div>
       </div>
@@ -562,8 +562,9 @@ flowchart TB
             <tr><td>Persistent state</td><td>Plain <code>.canopy/</code> files; model re-derives each turn; a SessionStart hook re-injects on compact/clear</td><td><span class="badge badge-warning badge-xs">high / med</span></td></tr>
             <tr><td>Pooled worktrees</td><td>External <code>treehouse get --lease</code> / <code>return</code> / <code>status</code> / <code>prune</code>. Worker cwd = leased path, raw <code>git</code> — <strong>never</strong> Claude's <code>isolation: worktree</code></td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
             <tr><td>Parallel steerable workers</td><td><code>claude --bg</code> detached sessions (survive parent <code>/clear</code>, panes stay in agent view/FleetView), tracked by id in <code>state.json</code>, resumed via attach. Non-isolated in-session subagents are cheaper but die on <code>/clear</code></td><td><span class="badge badge-success badge-xs">high</span></td></tr>
-            <tr><td>Independent reviewer + never-exit loop + tests/lint/PR/CI</td><td><strong>The gate: <code>no-mistakes</code> / <code>ship-and-sleep</code></strong> — worker runs <code>axi run --intent</code>; the gate spawns its own fresh diff-only reviewer (point at a different model), loops to <code>checks-passed</code>, git-layer enforced. Canopy builds none of it.</td><td><span class="badge badge-success badge-xs">high · code-read</span></td></tr>
-            <tr><td>Modes (<code>/yolo</code>)</td><td>Slash command writes <code>mode</code> to state.json; Guided surfaces the gate's calls via AskUserQuestion (main session only)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Lean gate — deterministic checks</td><td>Worker runs <code>test · lint · typecheck · build</code> itself (0 LLM tokens); CI re-runs them on the PR as backstop</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Lean gate — independent review</td><td>Orchestrator spawns ONE fresh non-<code>fork</code> diff-only reviewer (cheap model), bounded ~2 rounds. No multi-round LLM pipeline. Phase-0-proven isolation.</td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
+            <tr><td>Modes (<code>/yolo</code>)</td><td>Slash command writes <code>mode</code> to state.json; Guided surfaces a review call via AskUserQuestion (main session only)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>One merge-watcher</td><td>External <code>gh-axi</code> tick (launchd/cron) → on merge, <code>treehouse return</code> + status = done. (Gate owns push→pr→ci)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Fan-out N tasks</td><td>1 leased worktree + 1 <code>claude --bg</code> worker per task; orchestrator tracks by id in <code>state.json</code>; only summaries return</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
           </tbody>
@@ -811,8 +812,8 @@ flowchart TB
             <tr><td>State: source of truth?</td><td>✅ <code>.canopy/</code> files; SessionStart hook is a ≤10k digest redundancy</td></tr>
             <tr><td>Reviewer scope?</td><td>✅ Option C — the worker runs tests &amp; lint itself (no extra agent/context); the fresh reviewer stays diff-only</td></tr>
             <tr><td>Fork firstmate or build clean?</td><td>✅ <strong>Build clean</strong> (after code read) — firstmate's ~22k-token always-on cost is inherent.</td></tr>
-            <tr><td>Reviewer + quality loop — build it?</td><td>✅ <strong>No — use <code>no-mistakes</code></strong> (MIT, lean, standalone). It already is the independent diff-only reviewer + the review→test→lint→docs→push→pr→ci pipeline, git-layer enforced. Canopy drives it; builds neither.</td></tr>
-            <tr><td>The "goal" gate?</td><td>✅ Subsumed — it's <code>no-mistakes</code>' pipeline (checks-passed verdict), not a separate thing to build.</td></tr>
+            <tr><td>Quality gate — heavy or lean?</td><td>✅ <strong>Lean, in-house</strong>. Considered <code>no-mistakes</code>/<code>ship-and-sleep</code> but rejected — too slow &amp; token-heavy (multi-round LLM pipeline). Instead: worker runs deterministic checks (test/lint/typecheck/build = 0 LLM tokens) + ONE bounded independent diff-review (cheap model, ~2 rounds) + CI backstop.</td></tr>
+            <tr><td>The "goal" gate?</td><td>✅ It's the deterministic checks + CI green (pass/fail), plus the one review verdict — nothing heavy to build.</td></tr>
           </tbody>
         </table>
       </div>
@@ -828,7 +829,7 @@ flowchart TB
         <table class="table">
           <thead><tr><th>#</th><th>Question</th></tr></thead>
           <tbody>
-            <tr><td>1</td><td class="text-warning"><strong>Gate engine — upstream <code>no-mistakes</code>, or your own <code>ship-and-sleep</code>?</strong> ship-and-sleep already forks no-mistakes + adds an adversarial skeptic + convergence loop + risk routing — closer to Canopy's ambitions. This is the new unblocker.</td></tr>
+            <tr><td>1</td><td><strong>Review budget</strong> — 1 bounded independent review per task (default), or 0 (pure deterministic + CI + your eyes) for maximum thrift? And which cheap model for the reviewer?</td></tr>
             <tr><td>2</td><td><strong>Third mode</strong> — YOLO &amp; Guided are set. What's the 3rd? (plan-only / dry-run that stops before edits?)</td></tr>
             <tr><td>3</td><td><strong>Memory dir name</strong> — confirm <code>.canopy/</code>, or pick <code>.grove</code> / <code>.baton</code> / <code>.ledger</code> / your own?</td></tr>
             <tr><td>4</td><td><strong>Worker spawn + Phase 0b</strong> — go with <code>claude --bg</code> workers (survive <code>/clear</code>, higher cost) as the default? And run Phase 0b to confirm <code>--bg</code> doesn't collide with a treehouse lease.</td></tr>
