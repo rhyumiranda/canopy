@@ -2,17 +2,21 @@
 # shellcheck shell=bash
 
 _pr_body() {
-  local id="$1" wt="$2" base="$3" tf title brief stat
+  local id="$1" wt="$2" base="$3" tf title what why stat
   tf="$(task_file "$id")"
   title="$(jq -r '.title' "$tf")"
-  brief="$(jq -r '.brief // ""' "$tf")"
+  what="$(jq -r '.what // .brief // ""' "$tf")"   # what the change does (falls back to the brief)
+  why="$(jq -r '.why // ""' "$tf")"               # the rationale
   stat="$(git -C "$wt" diff --stat "$base"..HEAD | sed 's/^/    /')"
   cat <<EOF
 ## Summary
 $title
 
-## What & why
-${brief:-_(no extra brief)_}
+## What
+${what:-_(not specified)_}
+
+## Why
+${why:-_(not specified)_}
 
 ## Files changed
 $stat
