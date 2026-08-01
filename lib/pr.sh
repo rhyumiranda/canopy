@@ -33,6 +33,12 @@ canopy_pr_open() {
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"; [ -d "$wt" ] || die "task $id has no worktree"
   branch="$(jq -r '.branch // empty' "$tf")"; [ -n "$branch" ] || die "task $id has no branch"
+
+  # HARD GATE: no PR without a clean independent review (override for hotfix/budget-0).
+  local reviewed; reviewed="$(jq -r '.reviewed // "none"' "$tf")"
+  if [ "$reviewed" != "clean" ] && [ "${CANOPY_SKIP_REVIEW:-0}" != "1" ]; then
+    die "task $id not reviewed clean (reviewed=$reviewed) — run 'canopy review $id' first (or set CANOPY_SKIP_REVIEW=1 for a hotfix)"
+  fi
   base="$(_default_branch "$wt")"
   title="$(git -C "$wt" log -1 --pretty=%s)"   # conventional subject from the worker
 

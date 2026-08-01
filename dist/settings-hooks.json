@@ -1,0 +1,21 @@
+{
+  "_comment": "Canopy hooks. `canopy setup` merges this into ~/.claude/settings.json and copies hooks/ to ~/.claude/canopy/hooks/. SessionStart re-injects the state digest on every session boundary; PreToolUse guards the orchestrator against writing to the project tree (only active when CANOPY_ROLE=orchestrator).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/canopy/hooks/session-start-digest.sh", "timeout": 5 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/canopy/hooks/guard-project-write.sh" }
+        ]
+      }
+    ]
+  }
+}

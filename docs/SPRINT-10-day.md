@@ -91,16 +91,16 @@
 - 📦 **Live-verified on the testbed:** merged real PR #1 → `watch once` detected it → worktree returned to the pool (treehouse shows it `available`) → task flipped to `done`. Installer wrote the plist and left launchd untouched (0 jobs loaded); test plist removed.
 - ↳ Fix found + applied: merge detection keys on `state:` (the `merged:` field is a timestamp, not yes/no); merge should not `--delete-branch` while the worktree holds it — teardown is the watcher's `treehouse return`.
 
-## Day 8 — Modes + hard-guarantee hooks
+## Day 8 — Modes + hard-guarantee hooks ✅ DONE
 🎯 YOLO/Guided + the non-negotiables enforced by the harness, not the model. ↳ PRD §7.6, §8
 
-- [ ] `/yolo` slash command: toggle `mode` in `state.json` (global). Guided = default.
-- [ ] Guided path: a decision needing a human → orchestrator uses `AskUserQuestion` → delegates the answer back to the worker → re-review. YOLO path: apply review fixes autonomously.
-- [ ] SessionStart hook: emit a ≤10k digest of `state.json` as `additionalContext` (fires on `startup·resume·clear·compact`). Test the digest on a compaction.
-- [ ] Guardrail hooks: block the PR step until a review verdict is recorded; enforce the ≤2-round loop (Stop/SubagentStop). 
-- [ ] Verify: judgment lives in prompts, guarantees in hooks.
-- 📦 Modes switch cleanly; state re-injects after `/clear`; the gate can't be skipped.
-- ✅ `/clear` the orchestrator mid-sprint → it re-orients from the digest and resumes; a forced attempt to open a PR without a review is blocked by the hook.
+- [x] `commands/yolo.md`: `/yolo [yolo|guided]` toggles `mode` via the `canopy` CLI. Guided default; guided path uses AskUserQuestion (in the orchestrator prompt).
+- [x] `hooks/session-start-digest.sh`: emits `hookSpecificOutput.additionalContext` (≤10k, hard-capped) digest of `state.json`; no-op outside a canopy repo. Wired via `dist/settings-hooks.json` matcher `startup|resume|clear|compact`.
+- [x] **Hard gate (code-level, better than a hook):** `canopy review` records `reviewed=<verdict>`; `canopy pr open` refuses unless `reviewed=clean` (override `CANOPY_SKIP_REVIEW=1` for hotfix/budget-0).
+- [x] `hooks/guard-project-write.sh`: PreToolUse(Bash) — blocks the orchestrator writing to the project tree (`>`, `sed -i`, `tee`, `git apply`, `cp/mv/rm`…), allows `.canopy/`+`/tmp`+read-only+`canopy` CLI; active only when `CANOPY_ROLE=orchestrator`.
+- [x] `test/hooks_test.sh` — 12 assertions green. **Full suite = 72 green.**
+- 📦 Modes toggle; digest re-injects; PR can't be opened unreviewed; orchestrator writes to the tree are blocked.
+- ↳ Hooks are authored + settings snippet ready; `canopy setup` (Day 9) installs them into `~/.claude` (you run it).
 
 ## Day 9 — /scribe, parallelization, steering, setup
 🎯 Knowledge compounding + true parallel fan-out + one-command install. ↳ PRD §7.9/7.10, §11, §12

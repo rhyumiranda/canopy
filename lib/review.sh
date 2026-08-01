@@ -64,6 +64,7 @@ canopy_review() {
 
   task_log "$id" "review: $(printf '%s' "$v" | jq -rc '{verdict,docs_in_sync,summary}')"
   verdict="$(printf '%s' "$v" | jq -r '.verdict')"
+  task_set "$id" reviewed "$verdict" >/dev/null   # gate signal for 'canopy pr open'
   printf '%s\n' "$v"
   if [ "$verdict" = "clean" ]; then info "review clean ✓"; return 0
   else info "review found issues"; return 1; fi
