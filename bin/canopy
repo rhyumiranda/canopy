@@ -12,6 +12,10 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/common.sh"
 # shellcheck source=../lib/state.sh
 . "$CANOPY_ROOT/lib/state.sh"
+# shellcheck source=../lib/worktree.sh
+. "$CANOPY_ROOT/lib/worktree.sh"
+# shellcheck source=../lib/worker.sh
+. "$CANOPY_ROOT/lib/worker.sh"
 
 usage() {
   cat <<'EOF'
@@ -45,6 +49,22 @@ case "$cmd" in
       status)    task_status "$@" ;;
       show)      task_show "$@" ;;
       *)         die "unknown 'task' subcommand: ${sub:-<none>}" ;;
+    esac ;;
+  worktree)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      lease)     canopy_worktree_lease "$@" ;;
+      return)    canopy_worktree_return "$@" ;;
+      path)      canopy_worktree_path "$@" ;;
+      *)         die "unknown 'worktree' subcommand: ${sub:-<none>}" ;;
+    esac ;;
+  worker)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      spawn)     canopy_worker_spawn "$@" ;;
+      logs)      canopy_worker_logs "$@" ;;
+      stop)      canopy_worker_stop "$@" ;;
+      *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;
   mode)          state_mode "$@" ;;
   version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;
