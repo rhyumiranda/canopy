@@ -8,3 +8,8 @@ node_modules/
 # local env
 .env
 .env.local
+# internal planning docs — kept locally, not published
+docs/PRD.md
+docs/SPRINT-10-day.md
+docs/architecture-map.html
+docs/research/

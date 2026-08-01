@@ -94,19 +94,23 @@ canopy pr open "$id"                   # gh-axi PR — refuses unless the review
 canopy status                          # the board
 ```
 
-**Handy:**
-- `/yolo` toggles autonomous vs guided (default) mode.
-- `/scribe` records durable lessons to `AGENTS.md`.
-- `/hotfix "<what broke>"` spins a fast isolated worker.
-- `canopy recover` resumes in-flight tasks after a `/clear`.
+### Skills (slash commands)
+
+| Skill | Usage | What it does |
+|---|---|---|
+| `/yolo` | `/yolo [yolo\|guided]` | Toggle autonomy — **autonomous** (auto-fix, no gate) vs **guided** (default; surfaces real decisions to you). Global. |
+| `/scribe` | `/scribe [fact]` | Record a durable, project-intrinsic lesson to `AGENTS.md` — every agent auto-loads it, so knowledge compounds. |
+| `/hotfix` | `/hotfix "<what broke>"` | Spin a fast isolated worker (fresh worktree, yolo, no review) for an urgent fix. |
+
+Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
 
 Full CLI: `init · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · recover · setup`.
 
-**Learn more:** [`docs/PRD.md`](docs/PRD.md) (full design), [`docs/architecture-map.html`](docs/architecture-map.html) (diagrams), [`docs/SPRINT-10-day.md`](docs/SPRINT-10-day.md) (how it was built).
+**How it works:** the *behavior* lives in `agents/` (orchestrator, worker, reviewer) and `commands/` (the skills above); the `lib/` shell scripts are the deterministic glue. It's small — read the code.
 
 ## Contributing
 
-Contributions are welcome — it's early and there's a clear backlog in `docs/SPRINT-10-day.md`.
+Contributions are welcome — it's early and there's plenty to sharpen (open an issue to see what's in flight).
 
 **Setup & tests:**
 ```bash
