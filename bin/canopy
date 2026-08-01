@@ -24,6 +24,10 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/pr.sh"
 # shellcheck source=../lib/watch.sh
 . "$CANOPY_ROOT/lib/watch.sh"
+# shellcheck source=../lib/scribe.sh
+. "$CANOPY_ROOT/lib/scribe.sh"
+# shellcheck source=../lib/setup.sh
+. "$CANOPY_ROOT/lib/setup.sh"
 
 usage() {
   cat <<'EOF'
@@ -98,6 +102,14 @@ case "$cmd" in
       show)      canopy_checks_show "$@" ;;
       *)         die "unknown 'checks' subcommand: ${sub:-<none>}" ;;
     esac ;;
+  scribe)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      add)       canopy_scribe_add "$@" ;;
+      show)      canopy_scribe_show ;;
+      *)         die "unknown 'scribe' subcommand: ${sub:-<none>}" ;;
+    esac ;;
+  setup)         canopy_setup "$@" ;;
   mode)          state_mode "$@" ;;
   version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;
   ""|-h|--help|help) usage ;;

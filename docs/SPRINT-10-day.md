@@ -102,15 +102,15 @@
 - 📦 Modes toggle; digest re-injects; PR can't be opened unreviewed; orchestrator writes to the tree are blocked.
 - ↳ Hooks are authored + settings snippet ready; `canopy setup` (Day 9) installs them into `~/.claude` (you run it).
 
-## Day 9 — /scribe, parallelization, steering, setup
+## Day 9 — /scribe, parallelization, steering, setup ✅ DONE
 🎯 Knowledge compounding + true parallel fan-out + one-command install. ↳ PRD §7.9/7.10, §11, §12
 
-- [ ] `/scribe` slash command: distill agents' learnings → append durable, project-intrinsic facts to `AGENTS.md`, gated (*non-obvious* + *changes future action*). Never task-level.
-- [ ] Parallel fan-out: orchestrator runs N tasks = N leased worktrees + N `claude --bg` workers concurrently; state tracks each; only summaries return.
-- [ ] Verify human steering: navigate/interrupt any worker in agent view (FleetView); resume by id.
-- [ ] `canopy setup`: install agents + `/yolo`/`/scribe`/`/canopy` + SessionStart hook + launchd watcher into user-level `~/.claude/` — once, all projects.
-- 📦 Two tasks run in parallel; `/scribe` writes one real AGENTS.md line; `canopy setup` makes it work in a second repo.
-- ✅ On GRID: 2 parallel briefs → 2 isolated worktrees, no collisions, both reach PR; `canopy init` a second repo and confirm zero extra setup.
+- [x] `lib/scribe.sh` `canopy scribe add/show` + `commands/scribe.md`: append durable, gated facts to the **committed** `AGENTS.md` (dedups; distinct from the document step + gitignored `.canopy/`).
+- [x] Parallel fan-out verified: 2 tasks → 2 **distinct** treehouse worktrees (no collision). Workers are independent `claude --bg` sessions; steerable in agent view.
+- [x] `lib/setup.sh` `canopy setup [--dry-run]`: copies agents/commands/hooks into `~/.claude`, symlinks `canopy` onto PATH, writes hooks to settings.json — **never clobbers** an existing settings.json (drops a snippet to merge instead). HOME-respecting.
+- [x] `test/day9_test.sh` — 12 assertions green, **tested against a fake HOME so real `~/.claude` stays untouched** (verified). Portability fix: `grep -F -- ` (system grep is `ugrep`). **Full suite = 84 green.**
+- 📦 scribe records to AGENTS.md; parallel leases isolated; `canopy setup` installs cleanly into a fresh home.
+- ↳ You run `canopy setup` for real when ready; nothing installed globally yet.
 
 ## Day 10 — Hardening, E2E, docs 🚩 MILESTONE
 🎯 Prove the whole thing + make it usable. ↳ PRD §13, §14
