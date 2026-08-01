@@ -109,6 +109,16 @@
       <div role="alert" class="alert alert-success alert-soft mb-5">
         <span class="text-sm"><strong>The lean gate:</strong> the <strong>worker runs the deterministic checks itself</strong> — <code>test · lint · typecheck · build</code> — which cost <strong>0 LLM tokens</strong> and catch most problems. The <em>only</em> LLM step is <strong>one bounded independent diff-review</strong> (fresh, diff-only, a cheap model, capped at ~2 rounds), which preserves the no-echo-chamber differentiator without a multi-round pipeline. CI re-runs the deterministic checks on the PR as the backstop. This is Canopy's earlier design — and Phase 0 already proved the fresh reviewer's context isolation. Token profile: near-free checks + ~1 small review per task.</span>
       </div>
+      <div class="grid gap-3 md:grid-cols-2 mb-5">
+        <div class="card bg-base-300"><div class="card-body p-4">
+          <h4 class="font-semibold text-sm">"Document" step — kept (like no-mistakes)</h4>
+          <p class="text-xs text-base-content/70 mt-1">The <strong>worker</strong> keeps the project's own docs in sync with its change (README, <code>docs/</code>, comments, changelog) as part of implementing — no extra LLM pass. The independent review checks docs match the diff. Per-change, tied to the code.</p>
+        </div></div>
+        <div class="card bg-base-300"><div class="card-body p-4">
+          <h4 class="font-semibold text-sm"><code>/scribe</code> — different, not a duplicate</h4>
+          <p class="text-xs text-base-content/70 mt-1"><code>/scribe</code> writes <strong>durable, cross-task learnings</strong> to <code>AGENTS.md</code> (post-merge, not tied to a diff). So both exist and don't overlap: "document" = docs for <em>this change</em>; <code>/scribe</code> = knowledge for <em>future tasks</em>.</p>
+        </div></div>
+      </div>
 
       <div tabindex="0" class="collapse collapse-arrow bg-base-200 border border-base-content/10 rounded-box mb-4">
         <div class="collapse-title font-semibold">The decision trail — how we landed on build-clean (resolved)</div>
@@ -193,7 +203,7 @@ flowchart TD
     Human(["You + orchestrator<br />Claude Code session"]):::human
     Human -->|"1 · intent"| Brief[[".canopy/ — brief + state<br />survives a context wipe"]]:::state
     Brief -->|"2 · lease worktree"| WT["treehouse pool"]:::infra
-    WT -->|"3 · spawn claude --bg"| Worker["Worker session<br />implement + commit<br />on a feature branch"]:::worker
+    WT -->|"3 · spawn claude --bg"| Worker["Worker session<br />implement + document the change<br />+ commit on a feature branch"]:::worker
     Worker -->|"4 · run gate"| Det
 
     subgraph GateBox["Lean gate — deterministic first, one bounded review"]
@@ -563,6 +573,7 @@ flowchart TB
             <tr><td>Pooled worktrees</td><td>External <code>treehouse get --lease</code> / <code>return</code> / <code>status</code> / <code>prune</code>. Worker cwd = leased path, raw <code>git</code> — <strong>never</strong> Claude's <code>isolation: worktree</code></td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
             <tr><td>Parallel steerable workers</td><td><code>claude --bg</code> detached sessions (survive parent <code>/clear</code>, panes stay in agent view/FleetView), tracked by id in <code>state.json</code>, resumed via attach. Non-isolated in-session subagents are cheaper but die on <code>/clear</code></td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Lean gate — deterministic checks</td><td>Worker runs <code>test · lint · typecheck · build</code> itself (0 LLM tokens); CI re-runs them on the PR as backstop</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Document the change</td><td>Worker updates the project's own docs (README/<code>docs/</code>/comments/changelog) in the same diff — no extra LLM pass; the review verifies docs match. Distinct from <code>/scribe</code> (durable <code>AGENTS.md</code> knowledge)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Lean gate — independent review</td><td>Orchestrator spawns ONE fresh non-<code>fork</code> diff-only reviewer (cheap model), bounded ~2 rounds. No multi-round LLM pipeline. Phase-0-proven isolation.</td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
             <tr><td>Modes (<code>/yolo</code>)</td><td>Slash command writes <code>mode</code> to state.json; Guided surfaces a review call via AskUserQuestion (main session only)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>One merge-watcher</td><td>External <code>gh-axi</code> tick (launchd/cron) → on merge, <code>treehouse return</code> + status = done. (Gate owns push→pr→ci)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>

@@ -128,12 +128,13 @@ Placement: `.canopy/` is **data**; it is NOT under `.claude/`. The SessionStart 
 ### 8.4 Worker subagent
 - Spawned as a `claude --bg` detached session; cwd = leased worktree; raw `git`.
 - Implements the task; fixes bugs it hits; **runs tests and lint itself** and fixes red results in place.
+- **Documents the change** in the same diff — keeps the project's own docs (README, `docs/`, comments, changelog) in sync (no extra LLM pass; this is no-mistakes' "document" step, done leanly). Distinct from `/scribe` (§8.10).
 - Re-invoked (attach / message by id) whenever the reviewer or a gate sends work back.
 - Detached so an orchestrator `/clear` doesn't kill it (see §8.12). Even if a worker dies, its committed worktree + `state.json` make progress recoverable — re-spawn on the same leased worktree.
 
 ### 8.5 Lean quality gate (built in-house, deterministic-first)
 - **Deterministic checks (0 LLM tokens):** the worker runs `test · lint · typecheck · build` itself and fixes red results in place. CI re-runs them on the PR as a backstop. These catch most problems for free.
-- **One bounded independent review (the only LLM step):** the orchestrator spawns ONE fresh non-`fork` diff-only reviewer (a cheap model is fine), run after the deterministic checks are green. If it finds real issues → worker fixes → re-run the (free) deterministic checks → at most one more review. Cap ~2 review rounds to bound cost.
+- **One bounded independent review (the only LLM step):** the orchestrator spawns ONE fresh non-`fork` diff-only reviewer (a cheap model is fine), run after the deterministic checks are green. It also verifies the change's **docs are in sync** (§8.4). If it finds real issues → worker fixes → re-run the (free) deterministic checks → at most one more review. Cap ~2 review rounds to bound cost.
 - This preserves the no-echo-chamber differentiator (Phase 0 proved the fresh reviewer's context isolation) **without** a multi-round LLM pipeline.
 - Explicitly NOT `no-mistakes`/`ship-and-sleep` — those are too slow/token-heavy (see §7).
 
@@ -166,6 +167,7 @@ Automation: `gh-axi pr create` + `gh-axi` watch checks to block on CI green.
 - Distills all agents' learnings and appends only **durable, project-intrinsic** facts to `AGENTS.md` — never task-level notes.
 - Two gates (mirroring the operator's memory rule): *non-obvious* AND *changes future action*.
 - `AGENTS.md` auto-loads for every agent, so knowledge compounds.
+- **Not the same as the "document" step (§8.4):** `/scribe` = durable cross-task learnings (post-merge, not tied to a diff); "document" = the project's own docs for *this* change. Both exist; no overlap.
 
 ### 8.11 Human steering
 - Workers appear as steerable/interruptible subagent windows (FleetView) under the input box.
