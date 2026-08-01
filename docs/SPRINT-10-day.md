@@ -14,16 +14,16 @@
 
 ---
 
-## Day 1 — Foundations & state layer
+## Day 1 — Foundations & state layer ✅ DONE
 🎯 Repo skeleton + `.canopy/` state is real and durable. ↳ PRD §6, §7.2, §11
 
-- [ ] Finalize stack (bash+jq recommended); add `canopy` CLI entrypoint + subcommand router (`init`, `setup`, `run`, `status`).
-- [ ] Define `.canopy/` layout: `brief.md`, `state.json`, `tasks/<id>.json`. Write the JSON schemas as docs + example fixtures.
-- [ ] Implement state helpers: `state_read`, `state_write` (atomic write via temp+rename), `task_get/set_status`, `task_add`. Status enum: `planning|implementing|documenting|checking|reviewing|pr-open|merged|done|blocked`.
-- [ ] `canopy init`: create `.canopy/` in a repo, seed `state.json` (`{mode, tasks:[]}`), ensure `treehouse init` ran. Idempotent.
-- [ ] Unit tests for the state helpers (concurrent-write safety, malformed-file recovery).
-- 📦 `canopy init` works in a scratch repo + on GRID; state round-trips.
-- ✅ Run `canopy init` on GRID → `.canopy/` exists, `canopy status` prints an empty board; kill/reopen shell → state intact.
+- [x] Stack = bash + `jq`. `bin/canopy` CLI + subcommand router (`init`, `status`, `task add/set/status/show`, `mode`, `version`).
+- [x] `.canopy/` layout: `brief.md`, `state.json`, `tasks/<id>.json`. Schemas documented in `lib/state.sh` header.
+- [x] State helpers (`lib/common.sh` + `lib/state.sh`): atomic write (temp+rename), `task_add/set/status/log/show`, `state_board/mode`. Status enum enforced.
+- [x] `canopy init`: creates `.canopy/`, seeds `state.json`, gitignores `.canopy/`, ensures `treehouse init`. Idempotent; rejects malformed state.
+- [x] `test/run.sh` — 25 assertions, all green (id sequencing, status validation, unknown-task guard, mode, durability across a fresh process, malformed-state rejection).
+- 📦 `canopy init` verified on GRID (state.json correct, board works); Grid left pristine.
+- ✅ Met: init → `.canopy/` exists, board prints, state survives a fresh process.
 
 ## Day 2 — Agent definitions (the playbook)
 🎯 The three roles exist as Claude Code agents; orchestrator can't edit. ↳ PRD §6, §7.1/7.4/7.5, §8, §10

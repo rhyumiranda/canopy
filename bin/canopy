@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# canopy — an orchestration layer for AI coding agents.
+# Thin glue CLI; behavior lives in Claude Code agents/skills/hooks.
+set -euo pipefail
+
+# Resolve the canopy install root (this file lives in <root>/bin/canopy).
+CANOPY_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CANOPY_ROOT="$(cd "$CANOPY_BIN/.." && pwd)"
+export CANOPY_ROOT
+
+# shellcheck source=../lib/common.sh
+. "$CANOPY_ROOT/lib/common.sh"
+# shellcheck source=../lib/state.sh
+. "$CANOPY_ROOT/lib/state.sh"
+
+usage() {
+  cat <<'EOF'
+canopy — orchestration layer for AI coding agents
+
+usage: canopy <command> [args]
+
+commands:
+  init                 Initialize .canopy/ in the current repo (idempotent)
+  status               Print the task board
+  task add <title>     Add a task (prints its id)
+  task set <id> <k> <v>  Set a field on a task
+  task status <id> <s>   Set a task's status
+  task show <id>       Print a task's full detail
+  mode [yolo|guided]   Get or set the global mode
+  version              Print version
+
+run 'canopy <command> -h' where available.
+EOF
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  init)          canopy_init "$@" ;;
+  status)        state_board ;;
+  task)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      add)       task_add "$@" ;;
+      set)       task_set "$@" ;;
+      status)    task_status "$@" ;;
+      show)      task_show "$@" ;;
+      *)         die "unknown 'task' subcommand: ${sub:-<none>}" ;;
+    esac ;;
+  mode)          state_mode "$@" ;;
+  version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;
+  ""|-h|--help|help) usage ;;
+  *)             die "unknown command: $cmd (try 'canopy help')" ;;
+esac
