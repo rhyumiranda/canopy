@@ -39,6 +39,20 @@ canopy_checks_show() {
   [ "$any" = 1 ] || { warn "no checks detected in $dir"; return 0; }
 }
 
+# canopy checks status [dir]  -> render "✅ test  ❌ lint" line; non-zero if any fail
+canopy_checks_status() {
+  need jq
+  local dir="${1:-$(pwd)}" line="" fail=0 name cmd sym
+  while IFS=$'\t' read -r name cmd; do
+    [ -n "${name:-}" ] || continue
+    if ( cd "$dir" && eval "$cmd" ) >/dev/null 2>&1; then sym="✅"; else sym="❌"; fail=1; fi
+    line="${line}${line:+  }${sym} ${name}"
+  done < <(_checks_config "$dir")
+  [ -n "$line" ] || line="(no checks configured)"
+  printf '%s\n' "$line"
+  return "$fail"
+}
+
 # canopy checks run [dir]  -> non-zero if ANY check fails
 canopy_checks_run() {
   need jq

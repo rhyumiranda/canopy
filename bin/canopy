@@ -103,6 +103,7 @@ case "$cmd" in
     sub="${1:-}"; shift || true
     case "$sub" in
       run)       canopy_checks_run "$@" ;;
+      status)    canopy_checks_status "$@" ;;
       show)      canopy_checks_show "$@" ;;
       *)         die "unknown 'checks' subcommand: ${sub:-<none>}" ;;
     esac ;;

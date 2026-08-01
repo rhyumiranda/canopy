@@ -1,28 +1,68 @@
-# pr.sh — open PRs via gh-axi + gate on CI. Sourced, not executed.
+# pr.sh — open PRs via gh-axi + gate on review/checks/CI. Sourced, not executed.
 # shellcheck shell=bash
 
+# " 3 files changed, 42 insertions(+), 7 deletions(-)" -> "<n> <ins> <del>"
+_diff_scope() {
+  local wt="$1" base="$2" line n i d
+  line="$(git -C "$wt" diff --shortstat "$base"..HEAD 2>/dev/null)"
+  n="$(printf '%s' "$line" | grep -oE '[0-9]+ files? changed' | grep -oE '[0-9]+' | head -1)"
+  i="$(printf '%s' "$line" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' | head -1)"
+  d="$(printf '%s' "$line" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' | head -1)"
+  printf '%s %s %s\n' "${n:-0}" "${i:-0}" "${d:-0}"
+}
+
+_review_line() {
+  local tf="$1" v s
+  v="$(jq -r '.reviewed // "none"' "$tf")"
+  s="$(jq -r '.review_summary // ""' "$tf")"
+  case "$v" in
+    clean)  printf '🔍 Independent review: **clean**%s' "$([ -n "$s" ] && printf ' — %s' "$s")" ;;
+    issues) printf '🔍 Independent review: had issues, resolved before this PR' ;;
+    *)      printf '🔍 Independent review: (not recorded)' ;;
+  esac
+}
+
+_verify_cmd() {
+  local tf="$1" wt="$2" v t
+  v="$(jq -r '.verify // empty' "$tf")"
+  [ -n "$v" ] && { printf '%s\n' "$v"; return; }
+  t="$(_checks_config "$wt" | awk -F'\t' '$1=="test"{print $2; exit}')"
+  printf '%s\n' "${t:-canopy checks run}"
+}
+
 _pr_body() {
-  local id="$1" wt="$2" base="$3" tf title what why stat
+  local id="$1" wt="$2" base="$3" tf title what why issue breaking stat verify
   tf="$(task_file "$id")"
   title="$(jq -r '.title' "$tf")"
-  what="$(jq -r '.what // .brief // ""' "$tf")"   # what the change does (falls back to the brief)
-  why="$(jq -r '.why // ""' "$tf")"               # the rationale
+  what="$(jq -r '.what // .brief // ""' "$tf")"
+  why="$(jq -r '.why // ""' "$tf")"
+  issue="$(jq -r '.issue // empty' "$tf")"
+  breaking="$(jq -r '.breaking // ""' "$tf")"
   stat="$(git -C "$wt" diff --stat "$base"..HEAD | sed 's/^/    /')"
+  verify="$(_verify_cmd "$tf" "$wt")"
+  # shellcheck disable=SC2046
+  set -- $(_diff_scope "$wt" "$base"); local nf="$1" ins="$2" del="$3"
+
   cat <<EOF
-## Summary
-$title
+${title}
 
-## What
-${what:-_(not specified)_}
+**What** — ${what:-_(not specified)_}
+**Why** — ${why:-_(not specified)_}$([ -n "$issue" ] && printf '   ·   Closes #%s' "$issue")
 
-## Why
-${why:-_(not specified)_}
+## How to verify
+\`\`\`bash
+${verify}
+\`\`\`
 
-## Files changed
+## Checks
+$(jq -r '.checks_line // "(not recorded)"' "$tf")
+$(_review_line "$tf")
+
+## Breaking changes
+${breaking:-None.}
+
+## Files (${nf}, +${ins}/-${del})
 $stat
-
-## Testing
-Deterministic checks (test / lint / typecheck / build) were run by the worker; one independent diff-only review passed. CI must be green to merge.
 
 ---
 🌳 Opened by Canopy · task \`$id\`
@@ -33,26 +73,38 @@ EOF
 canopy_pr_open() {
   require_canopy; need gh-axi; need git; need jq
   local id="${1:?task id}"; _assert_task "$id"
-  local tf wt branch base title body out prnum
+  local tf wt branch base title body out prnum checks_line labels
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"; [ -d "$wt" ] || die "task $id has no worktree"
   branch="$(jq -r '.branch // empty' "$tf")"; [ -n "$branch" ] || die "task $id has no branch"
 
-  # HARD GATE: no PR without a clean independent review (override for hotfix/budget-0).
+  # HARD GATE 1: no PR without a clean independent review (override for hotfix/budget-0).
   local reviewed; reviewed="$(jq -r '.reviewed // "none"' "$tf")"
   if [ "$reviewed" != "clean" ] && [ "${CANOPY_SKIP_REVIEW:-0}" != "1" ]; then
-    die "task $id not reviewed clean (reviewed=$reviewed) — run 'canopy review $id' first (or set CANOPY_SKIP_REVIEW=1 for a hotfix)"
+    die "task $id not reviewed clean (reviewed=$reviewed) — run 'canopy review $id' first (or CANOPY_SKIP_REVIEW=1)"
   fi
+
+  # HARD GATE 2: deterministic checks must pass locally; capture the rendered line for the body.
+  if checks_line="$(canopy_checks_status "$wt")"; then :; else
+    [ "${CANOPY_SKIP_CHECKS:-0}" = "1" ] || die "task $id has failing checks: $checks_line (fix them, or CANOPY_SKIP_CHECKS=1)"
+  fi
+  task_set "$id" checks_line "$checks_line" >/dev/null
+
   base="$(_default_branch "$wt")"
-  title="$(git -C "$wt" log -1 --pretty=%s)"   # conventional subject from the worker
+  title="$(git -C "$wt" log -1 --pretty=%s)"
 
   info "pushing $branch"
   git -C "$wt" push -q -u origin "$branch" 2>&1 | tail -1 || die "push failed for $branch"
 
   body="$(_pr_body "$id" "$wt" "$base")"
-  out="$( cd "$wt" && gh-axi pr create --title "$title" --body "$body" --base "$base" --head "$branch" 2>&1 )"
+
+  # optional labels: .labels may be a JSON array or a space-separated string
+  local -a label_args=(); labels="$(jq -r '.labels // empty | if type=="array" then join(" ") else . end' "$tf")"
+  local l; for l in $labels; do label_args+=(--label "$l"); done
+
+  out="$( cd "$wt" && gh-axi pr create --title "$title" --body "$body" --base "$base" --head "$branch" "${label_args[@]}" 2>&1 )"
   prnum="$(printf '%s' "$out" | grep -oE '/pull/[0-9]+|#[0-9]+' | grep -oE '[0-9]+' | head -1)"
-  if [ -z "$prnum" ]; then warn "could not parse PR number from gh-axi output:"; printf '%s\n' "$out" >&2; die "pr create may have failed"; fi
+  if [ -z "$prnum" ]; then warn "could not parse PR number:"; printf '%s\n' "$out" >&2; die "pr create may have failed"; fi
 
   task_set "$id" pr "$prnum" >/dev/null
   task_status "$id" pr-open >/dev/null
