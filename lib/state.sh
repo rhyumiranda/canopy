@@ -103,6 +103,18 @@ task_status() {
   task_set "$id" status "$st"
 }
 
+# task_checkpoint <id> <note...>  (record where the worker "left off" — for recovery)
+task_checkpoint() {
+  require_canopy; need jq
+  local id="${1:?task id}"; shift; local note="${*:?note}"
+  _assert_task "$id"
+  local tf; tf="$(task_file "$id")"; local now; now="$(_c_ts)"
+  jq --arg n "$note" --arg now "$now" \
+     '.checkpoint={note:$n,updated:$now} | .log += [{t:$now,msg:("checkpoint: "+$n)}]' \
+     "$tf" | write_atomic "$tf"
+  info "task $id checkpoint: $note"
+}
+
 # task_log <id> <msg...>  (append a timestamped log line to the detail file)
 task_log() {
   require_canopy; need jq

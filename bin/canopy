@@ -28,6 +28,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/scribe.sh"
 # shellcheck source=../lib/setup.sh
 . "$CANOPY_ROOT/lib/setup.sh"
+# shellcheck source=../lib/recover.sh
+. "$CANOPY_ROOT/lib/recover.sh"
 
 usage() {
   cat <<'EOF'
@@ -59,9 +61,11 @@ case "$cmd" in
       add)       task_add "$@" ;;
       set)       task_set "$@" ;;
       status)    task_status "$@" ;;
+      checkpoint) task_checkpoint "$@" ;;
       show)      task_show "$@" ;;
       *)         die "unknown 'task' subcommand: ${sub:-<none>}" ;;
     esac ;;
+  recover)       canopy_recover "$@" ;;
   worktree)
     sub="${1:-}"; shift || true
     case "$sub" in

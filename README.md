@@ -105,7 +105,8 @@ Diagrams (flow + runtime topology): `docs/architecture-map.html`.
 | Orchestrator | Edit/Write denied; delegates; never edits code. |
 | State source of truth | `.canopy/` files on disk. A SessionStart hook re-injects a ≤10k-char digest on `startup·resume·clear·compact`; the orchestrator also reads `.canopy/` every turn (redundancy). |
 | Worktrees | `treehouse` pool — lease per task, `return` on merge. Worker cwd = leased path, raw `git`. **Never** Claude's `isolation: worktree` / `-w`. (Phase 0 + 0b proven.) |
-| Workers | `claude --bg` detached sessions (survive `/clear`), tracked by id in `state.json`. One task per worker; many in parallel. |
+| Workers | **Steerable in-session subagent personas** (default) — navigable/interruptible panes under the one session; the human steers live. `claude --bg` detached is an opt-in mode for unattended runs. One task per worker; many in parallel. |
+| Recovery | In-session workers die on `/clear`; progress is durable (incremental commits + a per-task **checkpoint**). `canopy recover` re-spawns from where the worker left off — nothing lost, nothing redone. |
 | Quality gate | **Lean, in-house.** `no-mistakes`/`ship-and-sleep` rejected — too slow/token-heavy. Instead: worker runs deterministic checks itself (`test·lint·typecheck·build` = 0 LLM tokens) + **one bounded independent diff-review** (fresh non-`fork` reviewer, cheap model default Haiku, cap ~2 rounds) + CI backstop. |
 | Document step | The **worker** keeps the project's own docs in sync with the change (README/`docs/`/comments/changelog) in the same diff — no extra LLM pass. Distinct from `/scribe`. |
 | Modes | **Two only** — YOLO (autonomous) and Guided (human-gated). Global `/yolo` toggle. |
@@ -151,7 +152,11 @@ Runs as `claude`. Reads `.canopy/state.json` at the top of every turn. Delegates
 Lease `treehouse get --lease`; release `treehouse return`; inspect `status`; clean `prune`. One branch per task; on merge the worktree returns to the pool (deps/build cache preserved).
 
 ### 7.4 Worker
-A `claude --bg` detached session; cwd = leased worktree; raw `git`; tracked by id in `state.json`. Per task it: **implements** → **documents the change** (project docs, same diff) → **runs deterministic checks itself** (`test·lint·typecheck·build`, fixing red in place) → **commits** on a feature branch. Re-invoked (attach/message by id) when the review sends work back. Detached so an orchestrator `/clear` doesn't kill it; even a killed worker loses no work (recover from `state.json` + committed worktree). Never uses Claude's `isolation: worktree` / `-w`.
+**Default: a steerable in-session persona.** The orchestrator spawns each worker via its Agent tool (`subagent_type: canopy-worker`), pointed at the leased worktree (cwd = that path; raw `git`; never `-w`/`isolation: worktree` — Phase 0 proved no collision). This makes the worker a **navigable pane the human can watch and steer live** (FleetView) — the original requirement. Per task it: **implements** → **documents the change** (same diff) → **runs deterministic checks itself** → **commits incrementally** on a feature branch → writes a **checkpoint** at each milestone (`canopy task checkpoint`).
+
+**Optional detached mode** (`canopy worker spawn` = `claude --bg`) for unattended/overnight runs where live steering isn't needed and `/clear`-survival matters — but it's headless.
+
+**Recovery (§7.11)** covers the steerable default's one downside (dies on `/clear`).
 
 ### 7.5 Lean quality gate
 - **Deterministic checks (0 LLM tokens):** run by the worker (§7.4); CI re-runs them on the PR as the backstop. These catch most problems for free.
@@ -173,7 +178,13 @@ ONE external OS-scheduled tick (launchd on macOS / cron), not per project, not a
 A slash command the operator invokes. Distills all agents' learnings and appends only **durable, project-intrinsic** facts to `AGENTS.md` — never task-level notes. Gates: *non-obvious* AND *changes future action*. `AGENTS.md` auto-loads for every agent, so knowledge compounds. **Distinct from the document step (§7.4):** `/scribe` = durable cross-task learnings (post-merge, not tied to a diff); "document" = the project's own docs for *this* change.
 
 ### 7.10 Human steering & session lifecycle
-Workers are `claude --bg` sessions, navigable/interruptible in agent view (FleetView); `herdr` optional. `/compact` is safe (workers unaffected, panes persist). `/clear` kills in-session subagents but **`claude --bg` workers survive** (supervisor-managed, resumable by id) — the reason workers are `--bg`. Durability backstop: `state.json` + committed worktree.
+Workers are **steerable in-session subagent panes** (FleetView) under the one orchestrator session — the human navigates in, watches the chat, and interrupts/redirects live. This steerability is the priority (it's the original requirement). `/compact` is safe (context summarized, work continues). `/clear` **does** kill in-session workers — accepted, because recovery (§7.11) re-spawns them from durable state. Use `/compact` while work is in flight; `/clear` only when you're ready to resume fresh.
+
+### 7.11 Recovery (checkpoint tracker)
+Because a steerable in-session worker dies on `/clear`, Canopy makes its progress recoverable:
+- **Durable progress** = incremental git commits in the leased worktree + a **checkpoint** (`.canopy/tasks/<id>.json → checkpoint {note, updated}`) the worker writes at each milestone (`canopy task checkpoint`).
+- **`canopy recover [<id>]`** finds in-flight tasks (status `implementing|documenting|checking|reviewing`) and prints a **resume-brief**: original intent + what's already committed + the last checkpoint + "continue, don't restart".
+- On startup / after `/clear`, the orchestrator runs `canopy recover` and re-spawns a worker per in-flight task to continue from its checkpoint. No work is lost; nothing is redone.
 
 ---
 
@@ -246,7 +257,7 @@ Canopy ships as a CLI (like `treehouse`).
 | Worktree double-management (Claude vs treehouse) | **Retired** — opt-in; Ground Rule 1 (Phase 0 for subagents, Phase 0b for `--bg`). |
 | In-model watchers not durable (die on `/clear`) | **Retired** — merge-watcher is an external OS process. |
 | SessionStart re-injection contract | **Retired** — fires on `startup·resume·clear·compact`; `additionalContext` ≤10k → digest + `.canopy/` read redundancy. |
-| `/clear` kills in-session workers | **Mitigated** — workers are `claude --bg` (survive); durability backstop via `state.json` + committed worktree. `/compact` is safe. |
+| `/clear` kills steerable in-session workers | **Accepted + recovered** — steerability is the priority; `canopy recover` re-spawns from checkpoints + committed worktree (§7.11). `/compact` is safe; `--bg` mode when `/clear`-survival matters more than steering. |
 | No external→session push (can't proactively wake orchestrator) | **Accepted** — turn-based reconciliation + OS notification. |
 | Local-first pieces don't scale org-wide | **Accepted for v1** — graduate merge-watcher to webhook + hosted worker. |
 

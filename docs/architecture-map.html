@@ -203,7 +203,7 @@ flowchart TD
     Human(["You + orchestrator<br />Claude Code session"]):::human
     Human -->|"1 · intent"| Brief[[".canopy/ — brief + state<br />survives a context wipe"]]:::state
     Brief -->|"2 · lease worktree"| WT["treehouse pool"]:::infra
-    WT -->|"3 · spawn claude --bg"| Worker["Worker session<br />implement + document the change<br />+ commit on a feature branch"]:::worker
+    WT -->|"3 · spawn steerable in-session worker"| Worker["Worker persona (steerable pane)<br />implement + document + commit<br />+ checkpoint each milestone"]:::worker
     Worker -->|"4 · run gate"| Det
 
     subgraph GateBox["Lean gate — deterministic first, one bounded review"]
@@ -509,7 +509,7 @@ flowchart TB
         Orch["Orchestrator<br />delegates · never edits"]:::worker
         Scribe["Scribe<br />/scribe"]:::scribe
       end
-      subgraph Workers["Worker sessions · claude --bg · detached, survive /clear, steerable"]
+      subgraph Workers["Worker personas · steerable in-session panes (default) · --bg optional"]
         direction LR
         W1["Worker A<br />task 1"]:::worker
         W2["Worker B<br />task 2"]:::worker
@@ -539,7 +539,7 @@ flowchart TB
     You -->|"navigate · steer · interrupt"| Workers
     Hook -.->|"re-inject ≤10k state digest on clear/compact"| Orch
     Orch <-->|"read / write state"| Canopy
-    Orch -->|"spawn claude --bg · 1 per task"| W1
+    Orch -->|"spawn steerable subagent · 1 per task"| W1
     Orch -->|"spawn"| W2
     Orch -->|"lease / return"| Pool
     W1 -->|"implement + commit in"| Pool
@@ -565,7 +565,7 @@ flowchart TB
             </pre>
           </div>
           <p class="text-xs text-base-content/60 mt-3">
-            Three things to notice: workers are <strong>detached <code>claude --bg</code></strong> sessions (survive a <code>/clear</code>, stay steerable); the gate is
+            Three things to notice: workers are <strong>steerable in-session panes</strong> (navigate + interrupt them live; <code>--bg</code> detached is opt-in); the gate is
             <strong>lean and in-house</strong> — the worker runs the <span style="color:#d9b36a">deterministic checks</span> (test/lint/typecheck/build = 0 LLM tokens) and the only LLM step is
             <strong>one bounded</strong> <span style="color:#d98a9e">independent diff-review</span>; and the <span style="color:#9fd06a">merge-watcher</span> is an external <code>gh-axi</code> tick.
             No heavy multi-round LLM pipeline — orchestrator and gate both stay cheap.
@@ -581,13 +581,14 @@ flowchart TB
             <tr><td>Orchestrator never edits</td><td>Main session with Edit/Write denied via <code>permissions.deny</code> or a locked-down <code>--agent</code></td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Persistent state</td><td>Plain <code>.canopy/</code> files; model re-derives each turn; a SessionStart hook re-injects on compact/clear</td><td><span class="badge badge-warning badge-xs">high / med</span></td></tr>
             <tr><td>Pooled worktrees</td><td>External <code>treehouse get --lease</code> / <code>return</code> / <code>status</code> / <code>prune</code>. Worker cwd = leased path, raw <code>git</code> — <strong>never</strong> Claude's <code>isolation: worktree</code></td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
-            <tr><td>Parallel steerable workers</td><td><code>claude --bg</code> detached sessions (survive parent <code>/clear</code>, panes stay in agent view/FleetView), tracked by id in <code>state.json</code>, resumed via attach. Non-isolated in-session subagents are cheaper but die on <code>/clear</code></td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Parallel steerable workers</td><td><strong>In-session subagent personas (default)</strong> spawned via the orchestrator's Agent tool, cwd = leased worktree — navigable/steerable panes (FleetView). <code>--bg</code> detached is opt-in for unattended runs. Die on <code>/clear</code> → <code>canopy recover</code> re-spawns from checkpoints</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Lean gate — deterministic checks</td><td>Worker runs <code>test · lint · typecheck · build</code> itself (0 LLM tokens); CI re-runs them on the PR as backstop</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Document the change</td><td>Worker updates the project's own docs (README/<code>docs/</code>/comments/changelog) in the same diff — no extra LLM pass; the review verifies docs match. Distinct from <code>/scribe</code> (durable <code>AGENTS.md</code> knowledge)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>Lean gate — independent review</td><td>Orchestrator spawns ONE fresh non-<code>fork</code> diff-only reviewer (cheap model), bounded ~2 rounds. No multi-round LLM pipeline. Phase-0-proven isolation.</td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
             <tr><td>Modes (<code>/yolo</code>)</td><td>Slash command writes <code>mode</code> to state.json; Guided surfaces a review call via AskUserQuestion (main session only)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
             <tr><td>One merge-watcher</td><td>External <code>gh-axi</code> tick (launchd/cron) → on merge, <code>treehouse return</code> + status = done. (Gate owns push→pr→ci)</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
-            <tr><td>Fan-out N tasks</td><td>1 leased worktree + 1 <code>claude --bg</code> worker per task; orchestrator tracks by id in <code>state.json</code>; only summaries return</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Fan-out N tasks</td><td>1 leased worktree + 1 steerable worker per task; orchestrator tracks by id in <code>state.json</code>; only summaries return</td><td><span class="badge badge-success badge-xs">high</span></td></tr>
+            <tr><td>Recovery after <code>/clear</code></td><td>Worker writes a <strong>checkpoint</strong> per milestone + commits incrementally; <code>canopy recover</code> emits a resume-brief (intent + committed + checkpoint) → orchestrator re-spawns to continue, not restart</td><td><span class="badge badge-success badge-xs">high · tested</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -802,14 +803,13 @@ flowchart TB
             <p class="text-xs text-base-content/70 mt-1">Only summarizes the orchestrator's own history. Workers are <strong>unaffected</strong> (their transcripts live in separate files) and their panes persist. This is the routine way to reclaim context.</p>
           </div></div>
           <div class="card bg-base-300 ring-1 ring-warning"><div class="card-body p-4">
-            <h4 class="font-semibold text-sm text-warning"><code>/clear</code> — destructive to in-session workers</h4>
-            <p class="text-xs text-base-content/70 mt-1">In-session Agent-tool subagents are co-scoped to the parent → <strong>killed</strong>, panes vanish. Only <code>claude --bg</code> <strong>detached</strong> sessions survive (supervisor-managed, panes stay in agent view, resumable by id).</p>
+            <h4 class="font-semibold text-sm text-warning"><code>/clear</code> — kills in-session workers (recovered)</h4>
+            <p class="text-xs text-base-content/70 mt-1">In-session steerable subagents are co-scoped to the parent → <strong>killed</strong> on <code>/clear</code>. That's accepted: <code>canopy recover</code> re-spawns them from checkpoints + committed worktree. (<code>claude --bg</code> detached survives <code>/clear</code> but is headless — opt-in.)</p>
           </div></div>
         </div>
         <div role="alert" class="alert alert-info alert-soft">
-          <span class="text-sm"><strong>Design consequence:</strong> workers should be spawned as <code>claude --bg</code> detached sessions (tracked by id in <code>state.json</code>), so a <code>/clear</code> on the orchestrator doesn't kill them and their panes stay navigable. And because <code>state.json</code> + the committed worktree are durable, even a killed worker loses no real work — the orchestrator re-spawns on the same leased worktree to continue. Lean on <code>/compact</code> for routine trimming; treat <code>/clear</code> as rare.</span>
+          <span class="text-sm"><strong>Design consequence (revised — steerability wins):</strong> workers are <strong>in-session steerable panes by default</strong>, because watching + steering them live is the whole point. The cost — they die on <code>/clear</code> — is covered by <strong>recovery</strong>: each worker commits incrementally and writes a <code>canopy task checkpoint</code> per milestone, and <code>canopy recover</code> re-spawns from the checkpoint + committed worktree (continue, not restart). Lean on <code>/compact</code> (safe) while work is in flight; <code>/clear</code> then recover when you want a fresh orchestrator. <code>--bg</code> detached stays available for unattended runs.</span>
         </div>
-        <p class="text-xs text-warning/90 mt-2">↳ New verify item (Phase 0b): confirm <code>claude --bg</code> can be pointed at a treehouse-leased worktree without auto-creating its own rival <code>.claude/worktrees/</code> — Phase 0 proved this for plain in-session subagents, not yet for <code>--bg</code>.</p>
       </div>
     </section>
 
@@ -839,7 +839,8 @@ flowchart TB
             <tr><td>Quality gate — heavy or lean?</td><td>✅ <strong>Lean, in-house</strong>. Considered <code>no-mistakes</code>/<code>ship-and-sleep</code> but rejected — too slow &amp; token-heavy (multi-round LLM pipeline). Instead: worker runs deterministic checks (test/lint/typecheck/build = 0 LLM tokens) + ONE bounded independent diff-review (cheap model, ~2 rounds) + CI backstop.</td></tr>
             <tr><td>The "goal" gate?</td><td>✅ It's the deterministic checks + CI green (pass/fail), plus the one review verdict — nothing heavy to build.</td></tr>
             <tr><td>Third mode?</td><td>✅ No — just YOLO (autonomous) + Guided (human-gated).</td></tr>
-            <tr><td>Worker spawn?</td><td>✅ <code>claude --bg</code> detached (survive <code>/clear</code>), cwd = leased worktree, no <code>-w</code>. <strong>Phase 0b passed</strong> — no collision.</td></tr>
+            <tr><td>Worker spawn?</td><td>✅ <strong>Steerable in-session persona (default)</strong> — navigable/interruptible pane; cwd = leased worktree, no <code>-w</code> (Phase 0/0b). <code>--bg</code> detached opt-in. Dies on <code>/clear</code> → <code>canopy recover</code>.</td></tr>
+            <tr><td>Recovery after <code>/clear</code>?</td><td>✅ Checkpoint tracker — worker checkpoints + commits incrementally; <code>canopy recover</code> re-spawns from where it left off (continue, not restart).</td></tr>
             <tr><td>Review budget?</td><td>✅ <strong>1 bounded independent review</strong> per task (cheap model, default Haiku — configurable).</td></tr>
             <tr><td>Memory dir name?</td><td>✅ <code>.canopy/</code> — confirmed.</td></tr>
           </tbody>
