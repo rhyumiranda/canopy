@@ -18,6 +18,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/worker.sh"
 # shellcheck source=../lib/checks.sh
 . "$CANOPY_ROOT/lib/checks.sh"
+# shellcheck source=../lib/review.sh
+. "$CANOPY_ROOT/lib/review.sh"
 
 usage() {
   cat <<'EOF'
@@ -64,10 +66,12 @@ case "$cmd" in
     sub="${1:-}"; shift || true
     case "$sub" in
       spawn)     canopy_worker_spawn "$@" ;;
+      fix)       canopy_worker_fix "$@" ;;
       logs)      canopy_worker_logs "$@" ;;
       stop)      canopy_worker_stop "$@" ;;
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;
+  review)        canopy_review "$@" ;;
   checks)
     sub="${1:-}"; shift || true
     case "$sub" in

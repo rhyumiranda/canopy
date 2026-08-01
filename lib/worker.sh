@@ -46,6 +46,29 @@ canopy_worker_spawn() {
   printf '%s\n' "$sid"
 }
 
+# canopy worker fix <id> <issues-json-or-text>  -> spawns a fresh worker in the same
+# worktree to address review issues, then prints its session id.
+canopy_worker_fix() {
+  require_canopy; need claude; need jq
+  local id="${1:?task id}"; shift; local issues="${*:?issues}"
+  _assert_task "$id"
+  local path sid; path="$(jq -r '.worktree // empty' "$(task_file "$id")")"
+  [ -d "$path" ] || die "task $id has no worktree"
+  local prompt
+  prompt="The independent review found issues with your change. Fix EXACTLY these, then re-run the deterministic checks and commit again on the current branch. Do not expand scope.
+
+Issues:
+${issues}"
+  sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+            --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
+  [ -n "$sid" ] || die "could not read fix-worker session id"
+  task_set "$id" worker_session "$sid" >/dev/null
+  task_status "$id" implementing >/dev/null
+  task_log "$id" "spawned fix worker $sid"
+  info "fix worker $sid spawned for $id"
+  printf '%s\n' "$sid"
+}
+
 # canopy worker logs <id|sid>  (best-effort tail)
 canopy_worker_logs() {
   need claude

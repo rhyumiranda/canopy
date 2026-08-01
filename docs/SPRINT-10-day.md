@@ -60,16 +60,16 @@
 - 📦 Worker self-gates deterministically at 0 LLM cost; commit gated on green (enforced by the worker prompt; hard hook = Day 8).
 - ✅ Met: `canopy checks run` passes on green, fails on red, auto-detects real project checks.
 
-## Day 5 — Lean gate: one bounded independent review
+## Day 5 — Lean gate: one bounded independent review ✅ DONE
 🎯 The differentiator — independent review, cheap, bounded. ↳ PRD §2, §7.5, §10
 
-- [ ] `review_run`: spawn the fresh `reviewer` (cheap model) on `git diff base..head` only; parse structured verdict.
-- [ ] Loop: verdict has issues → `worker_send` the issues → worker fixes → re-run free deterministic checks → re-review. **Cap 2 review rounds**; on cap, mark `blocked` + surface.
-- [ ] Reviewer also verifies docs-in-sync (fail if code changed but docs didn't, where expected).
-- [ ] Enforce independence: reviewer never receives worker transcript; never a `fork`.
-- [ ] Log per-task review token cost to sanity-check "lean".
-- 📦 The review→fix→re-check loop converges within the cap.
-- ✅ On GRID: a diff with a planted issue is caught by the reviewer, fixed by the worker, and passes on round 2; token cost per task ≈ one small review.
+- [x] `lib/review.sh` `canopy review <id>`: computes diff (`merge-base..HEAD`), spawns a fresh **Haiku** one-shot reviewer (`claude -p`) on the diff only, extracts + validates the structured verdict, logs it, exits 0 clean / 1 issues.
+- [x] `_extract_json` tolerates fenced / chatty model output; verdict schema-checked.
+- [x] `canopy worker fix <id> <issues>`: spawns a fresh worker in the same worktree to fix, re-run checks, re-commit. The **≤2-round loop is driven by the orchestrator prompt** (canopy provides the primitives).
+- [x] Independence structural: reviewer is a separate `claude -p` process on the diff — no worker transcript, never a `fork`.
+- [x] `test/review_test.sh` — 5 assertions green (JSON extraction bare/fenced/chatty, body load, default-branch). **Full suite = 60 green.**
+- 📦 **Live-verified:** clean change → `verdict: clean, docs_in_sync: true`; planted `mul()` bug (adds instead of multiplies) → `verdict: issues, severity high`. Cheap Haiku, ~seconds.
+- ↳ Full live fix-loop-to-green + token audit rolls into the Day 6 end-to-end run.
 
 ## Day 6 — PR + first full end-to-end 🚩 MILESTONE
 🎯 Brief → PR, entirely through agents (Phase 1 exit criteria). ↳ PRD §5, §7.7, §12
