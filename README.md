@@ -68,14 +68,16 @@ Not built for: hosted multi-tenant use, or replacing CI (Canopy *uses* your CI a
 
 ## How to use it
 
-**Prereqs:** [`treehouse`](https://github.com/kunchenguid/treehouse), `gh-axi`, `claude` (v2.1+), `jq`, `git`.
+**Prereqs:** [`git`](https://git-scm.com) · [`jq`](https://jqlang.github.io/jq/) · [Claude Code](https://code.claude.com/docs) (`claude`, v2.1+) · [`treehouse`](https://github.com/kunchenguid/treehouse) (worktree pool) · `gh-axi` (agent-ergonomic GitHub CLI wrapper — a companion "axi" tool; install it before running Canopy).
 
 **Install once:**
 ```bash
 git clone https://github.com/rhyumiranda/canopy.git && cd canopy
 ./bin/canopy setup                     # agents/commands/hooks -> ~/.claude, canopy -> PATH
 export PATH="$HOME/.local/bin:$PATH"   # if it isn't already
-canopy watch install                   # writes a launchd plist; run the printed launchctl command to start it
+canopy watch install                   # optional (macOS): auto-closes tasks on merge.
+                                       # writes a launchd plist; run the printed launchctl command to load it.
+                                       # (Linux: schedule `canopy watch once` via cron instead.)
 ```
 
 **Per project:**
@@ -89,11 +91,14 @@ canopy start                           # opens Claude Code AS the orchestrator
 **Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
 id=$(canopy task add "add a /health endpoint")
-canopy task set "$id" brief "…what & why…"
+canopy task set "$id" brief "adds GET /health returning 200"   # the What
+canopy task set "$id" why   "the load balancer needs a liveness probe"
 canopy worktree lease "$id"            # isolated worktree + feature branch
-# orchestrator spawns a steerable worker in that worktree: implement -> document -> checks -> commit
+canopy worker spawn "$id"              # worker: implement -> document -> checks -> commit
+                                       # (via `canopy start`, workers are steerable in-session
+                                       #  panes instead; `worker spawn` is the detached path)
 canopy review "$id"                    # one independent diff review (cheap model)
-canopy pr open "$id"                   # gh-axi PR — refuses unless the review is clean
+canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
 canopy status                          # the board
 ```
 
@@ -107,7 +112,7 @@ canopy status                          # the board
 
 Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
 
-Full CLI: `init · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · recover · setup`.
+Full CLI: `init · start · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · recover · setup`.
 
 **How it works:** the *behavior* lives in `agents/` (orchestrator, worker, reviewer) and `commands/` (the skills above); the `lib/` shell scripts are the deterministic glue. It's small — read the code.
 
