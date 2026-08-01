@@ -1,0 +1,10 @@
+# deps
+node_modules/
+# os / editor
+.DS_Store
+*.log
+# canopy runtime state (belongs in target projects, never in this repo)
+.canopy/
+# local env
+.env
+.env.local
