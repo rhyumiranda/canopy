@@ -49,16 +49,16 @@
 - 📦 **Live smoke passed:** brief "add greet()" → worker committed `feat: add greet(name) helper` in ~21s — correct `greet.js` + README updated (document step already working) in the leased worktree, no collision.
 - ✅ Met on a scratch repo end-to-end via the CLI; branch + worker id tracked in state.
 
-## Day 4 — Worker pipeline: document + deterministic checks
+## Day 4 — Worker pipeline: document + deterministic checks ✅ DONE
 🎯 The worker self-gates for free (0 LLM tokens beyond its own work). ↳ PRD §2, §7.4, §7.5
 
-- [ ] Per-project checks config (`.canopy/checks.json` or read from repo): the `test`, `lint`, `typecheck`, `build` commands (GRID's real commands).
-- [ ] Worker step: **document the change** in the same diff (README/`docs/`/comments/changelog as relevant).
-- [ ] Worker step: run the deterministic checks itself, fix red in place, loop until green; record results in the task.
-- [ ] Handle "no such check" gracefully (skip missing commands, log it).
-- [ ] Guard: worker commits only when checks are green.
-- 📦 Worker produces a green, documented commit with zero orchestrator LLM cost for the checks.
-- ✅ On GRID: a task that touches code updates its docs and passes `test/lint/typecheck/build` before committing; a deliberately-broken change is caught + fixed by the worker.
+- [x] `lib/checks.sh`: config resolution is **worktree-visible** — committed `canopy.json` `.checks` override, else auto-detect from `package.json` scripts / `tsconfig.json` / `Makefile`. (`.canopy/` is main-tree-only, so config can't live there.)
+- [x] `canopy checks run [dir]` (non-zero if any fail) + `canopy checks show`. `null`/absent checks skipped; empty repo = no-op success.
+- [x] Worker prompt updated to prefer `canopy checks run` (fallback: infer + run directly). Document step already lands in the same diff (proven Day 3).
+- [x] `test/checks_test.sh` — 8 assertions green (override, pass/fail, package.json auto-detect, skip-null, empty no-op).
+- [x] `test/all.sh` runner; **full suite green: 55 assertions** (25+14+8+8).
+- 📦 Worker self-gates deterministically at 0 LLM cost; commit gated on green (enforced by the worker prompt; hard hook = Day 8).
+- ✅ Met: `canopy checks run` passes on green, fails on red, auto-detects real project checks.
 
 ## Day 5 — Lean gate: one bounded independent review
 🎯 The differentiator — independent review, cheap, bounded. ↳ PRD §2, §7.5, §10

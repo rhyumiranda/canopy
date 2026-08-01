@@ -16,6 +16,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/worktree.sh"
 # shellcheck source=../lib/worker.sh
 . "$CANOPY_ROOT/lib/worker.sh"
+# shellcheck source=../lib/checks.sh
+. "$CANOPY_ROOT/lib/checks.sh"
 
 usage() {
   cat <<'EOF'
@@ -65,6 +67,13 @@ case "$cmd" in
       logs)      canopy_worker_logs "$@" ;;
       stop)      canopy_worker_stop "$@" ;;
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
+    esac ;;
+  checks)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      run)       canopy_checks_run "$@" ;;
+      show)      canopy_checks_show "$@" ;;
+      *)         die "unknown 'checks' subcommand: ${sub:-<none>}" ;;
     esac ;;
   mode)          state_mode "$@" ;;
   version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;

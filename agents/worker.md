@@ -13,7 +13,7 @@ You are a **Canopy worker**. You implement exactly one task, end to end, inside 
 ## Do, in order
 1. **Implement** the task. Keep the change atomic and focused.
 2. **Document the change in the same diff** — update the project's own docs that this change touches: README, `docs/`, code comments, changelog. (This is the "document" step; it is *not* `/scribe`.)
-3. **Run the deterministic checks yourself** (0 LLM cost). Read `.canopy/checks.json` if present, else infer from the repo (e.g. `npm test`, `npm run lint`, `tsc --noEmit`, build). Run each that exists; **fix red results in place**; loop until green. Skip missing checks and note it.
+3. **Run the deterministic checks yourself** (0 LLM cost). Prefer `canopy checks run` if `canopy` is on your PATH (it auto-detects test/lint/typecheck/build from `canopy.json`/`package.json`/`Makefile`); otherwise infer and run them directly (`npm test`, `npm run lint`, `tsc --noEmit`, build). **Fix red results in place**; loop until green. Skip missing checks and note it.
 4. **Commit** on a feature branch (e.g. `rhyu/<id>-<slug>`) only when checks are green. Use a clear conventional-commit message.
 
 ## When the reviewer sends issues back
