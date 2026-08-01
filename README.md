@@ -185,7 +185,20 @@ Automation: `gh-axi pr create` + `gh-axi` watch checks to block on CI green.
 - **GitHub (cloud):** PRs + CI.
 - The one boundary that must sit *outside* the session: the merge-watcher.
 
-Concept → mechanism table and both diagrams: see `.lavish/orchestration-layer-architecture.html`. Full component mapping with confidence + citations: `docs/research/orchestrator-technical-research.md`.
+Concept → mechanism table and both diagrams: see `docs/architecture-map.html`. Full component mapping with confidence + citations: `docs/research/orchestrator-technical-research.md`.
+
+### 9.1 Where the playbook lives (config, not memory)
+The agents don't remember the process between sessions — it's written into config Claude Code auto-loads every session, and the must-happen steps are hook-enforced. `canopy setup` installs all of this once, user-level.
+
+| Layer | Holds | Loaded | Guarantee |
+|---|---|---|---|
+| Agent definitions (`~/.claude/agents/*.md`) | Each role's job/tools/model. The orchestrator's system prompt **is** the playbook; worker/reviewer/scribe each have theirs. | on spawn / `--agent` | soft (model follows) |
+| Skills / slash commands | Packaged step-by-step workflows: `/yolo`, `/scribe`, a `/canopy` task runner. | when invoked | soft |
+| `CLAUDE.md` / `AGENTS.md` | Durable always-on rules & conventions (ground rules, `/scribe` knowledge). | every session, auto | soft |
+| Hooks (`settings.json`) | Deterministic automation the harness runs: state re-inject (SessionStart), never-exit loop (Stop/SubagentStop exit-2), block PR until reviewer verdict recorded. | on events | **hard (guaranteed)** |
+| `.canopy/state.json` | Where each task is → the next step. | read every turn | data |
+
+**Design principle:** put *judgment* in prompts/skills (flexible, can drift); put *guarantees* in hooks (deterministic, harness-enforced). The loop-can't-exit-early, must-re-inject-state, and no-PR-before-clean-review rules are hooks, not prompt wishes.
 
 ---
 
