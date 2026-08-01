@@ -22,6 +22,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/review.sh"
 # shellcheck source=../lib/pr.sh
 . "$CANOPY_ROOT/lib/pr.sh"
+# shellcheck source=../lib/watch.sh
+. "$CANOPY_ROOT/lib/watch.sh"
 
 usage() {
   cat <<'EOF'
@@ -80,6 +82,14 @@ case "$cmd" in
       open)      canopy_pr_open "$@" ;;
       checks)    canopy_pr_checks "$@" ;;
       *)         die "unknown 'pr' subcommand: ${sub:-<none>}" ;;
+    esac ;;
+  watch)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      once)      canopy_watch_once "$@" ;;
+      install)   canopy_watch_install "$@" ;;
+      ""|loop)   canopy_watch "$@" ;;
+      *)         die "unknown 'watch' subcommand: ${sub:-<none>}" ;;
     esac ;;
   checks)
     sub="${1:-}"; shift || true

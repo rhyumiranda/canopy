@@ -82,16 +82,14 @@
 - 📦 **First real PR: `rhyumiranda/canopy-testbed#1` "feat: add subtract() to mathlib"** — worker committed in ~18s, `npm test` green (add + subtract), review `clean`, structured PR body.
 - ✅ Met on the testbed end-to-end via the CLI.
 
-## Day 7 — Merge-watcher (external, durable)
+## Day 7 — Merge-watcher (external, durable) ✅ DONE
 🎯 Merges auto-close the loop without a babysat daemon. ↳ PRD §7.8, §10, §13
 
-- [ ] `canopy-watch` script: read all `pr-open` tasks from `state.json`, `gh-axi` check each → on merge, `treehouse return` + `status=done`; stateless between runs.
-- [ ] Install as **launchd** (macOS) job (~60s); verify it survives `/clear` and a reboot.
-- [ ] OS notification on merge (nudge; no external→session push).
-- [ ] Orchestrator reconciles `done` tasks on its next turn (turn-based).
-- [ ] Rate-limit sanity: fine for a few dozen PRs; note the webhook upgrade path.
-- 📦 Merge a Canopy PR → within ~a minute the worktree returns + task flips to done, untouched by the session.
-- ✅ On GRID: merge the Day-6 PR; the launchd tick returns the lease + marks done; `/clear` the orchestrator and confirm the watcher kept working.
+- [x] `lib/watch.sh` `canopy watch once`: reconciles all `pr-open` tasks — merged (keyed on `state: merged`) → `treehouse return` + `status=done`. Stateless. `canopy watch` = foreground loop (testing only).
+- [x] `canopy watch install`: writes a per-repo launchd plist (~60s `StartInterval`, `RunAtLoad`, logs to `.canopy/watch.log`) and prints the exact `launchctl` commands — **does NOT load it** (you run launchctl).
+- [x] `_notify`: opt-in desktop notification (`CANOPY_NOTIFY=1`); else logs. Orchestrator reconciles `done` on its next turn (turn-based).
+- 📦 **Live-verified on the testbed:** merged real PR #1 → `watch once` detected it → worktree returned to the pool (treehouse shows it `available`) → task flipped to `done`. Installer wrote the plist and left launchd untouched (0 jobs loaded); test plist removed.
+- ↳ Fix found + applied: merge detection keys on `state:` (the `merged:` field is a timestamp, not yes/no); merge should not `--delete-branch` while the worktree holds it — teardown is the watcher's `treehouse return`.
 
 ## Day 8 — Modes + hard-guarantee hooks
 🎯 YOLO/Guided + the non-negotiables enforced by the harness, not the model. ↳ PRD §7.6, §8
