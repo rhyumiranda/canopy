@@ -15,9 +15,20 @@ die()  { printf '\033[31m[canopy] error:\033[0m %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
 # --- repo / .canopy paths ---
-# The repo root is the git toplevel of the cwd.
+# The repo root is the MAIN worktree's toplevel — resolved even when cwd is a
+# linked worktree, so `.canopy/` (which lives in the main tree) is found when a
+# worker runs `canopy` inside its leased worktree. `git-common-dir` points at
+# <main-root>/.git in both the main tree and any linked worktree.
 repo_root() {
-  git rev-parse --show-toplevel 2>/dev/null || die "not inside a git repository"
+  local common
+  common="$(git rev-parse --git-common-dir 2>/dev/null)" || die "not inside a git repository"
+  common="$(cd "$common" 2>/dev/null && pwd)" || die "not inside a git repository"
+  if [ "$(basename "$common")" = ".git" ]; then
+    dirname "$common"
+  else
+    # exotic git dir (submodule, custom GIT_DIR) — fall back to the cwd's toplevel
+    git rev-parse --show-toplevel 2>/dev/null || die "not inside a git repository"
+  fi
 }
 canopy_dir()   { echo "$(repo_root)/.canopy"; }
 state_file()   { echo "$(canopy_dir)/state.json"; }
