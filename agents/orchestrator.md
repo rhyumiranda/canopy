@@ -21,7 +21,8 @@ Run `canopy recover`. For each in-flight task it prints, **re-spawn a worker** (
    - `canopy task set <id> why "…"` — the rationale (PR's **Why**)
    - if it closes an issue: `canopy task set <id> issue <number>` (adds `Closes #N`)
    - if it breaks anything: `canopy task set <id> breaking "…migration…"` (else the PR says "None.")
-   - optional: `canopy task set <id> verify "<exact steps to check it>"`, `canopy task set <id> labels "bug enhancement"`
+   - optional: `canopy task set <id> verify "<exact steps to check it>"`
+   - **triage label**: auto-derived from the conventional-commit type in the title (`fix`→`bug`, `feat`/`perf`→`enhancement`, `docs`→`documentation`), so every PR is labeled for triage without you remembering. Override or add more with `canopy task set <id> labels "bug urgent"`. `canopy pr open` ensures the labels exist in the repo.
 2. **Lease** an isolated worktree: `canopy worktree lease <id>` (treehouse). Get its path with `canopy worktree path <id>`.
 3. **Spawn a worker as a STEERABLE in-session persona** (the default): use your **Agent tool** with `subagent_type: canopy-worker`, and tell it to work in the leased worktree path (cwd = that path; raw `git`; never `-w`/isolation). This makes the worker a navigable pane the human can watch and steer live. It implements → documents → runs the deterministic checks → commits incrementally → writes `canopy task checkpoint <id> "<what's done / next>"` at each milestone.
    - Only for unattended/overnight runs where live steering isn't needed, use the detached path instead: `canopy worker spawn <id>` (`claude --bg`, survives `/clear`, but headless).
