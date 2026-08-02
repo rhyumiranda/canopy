@@ -24,6 +24,30 @@ esac
 [ -f "$H/.claude/commands/yolo.md" ]   && ok "yolo command installed"   || bad "yolo command not installed"
 [ -L "$H/.local/bin/canopy" ]          && ok "canopy symlinked on PATH" || bad "canopy not symlinked"
 
+# --- stable snapshot: bin+lib+agents copied under ~/.local/share/canopy ---
+APP="$H/.local/share/canopy"
+[ -f "$APP/bin/canopy" ]               && ok "snapshot has bin/canopy"      || bad "snapshot missing bin/canopy"
+[ -f "$APP/lib/common.sh" ]            && ok "snapshot has lib/"            || bad "snapshot missing lib/"
+[ -f "$APP/agents/orchestrator.md" ]  && ok "snapshot has agents/"         || bad "snapshot missing agents/"
+case "$(readlink "$H/.local/bin/canopy")" in
+  "$APP/bin/canopy") ok "PATH symlink points at the snapshot, not the repo" ;;
+  *)                 bad "PATH symlink does not point at the snapshot" ;;
+esac
+
+# --- the recurring bug: the INSTALLED command must find lib/ on its own ---
+if OUTV="$(HOME="$H" "$H/.local/bin/canopy" version 2>&1)" && printf '%s' "$OUTV" | grep -q '^canopy '; then
+  ok "installed canopy runs standalone (finds lib/)"
+else
+  bad "installed canopy cannot run: $OUTV"
+fi
+
+# --- guard: running setup from the installed snapshot refuses (no self-copy) ---
+if HOME="$H" "$H/.local/bin/canopy" setup >/dev/null 2>&1; then
+  bad "setup from the installed snapshot should refuse"
+else
+  ok "setup from the installed snapshot refuses"
+fi
+
 # --- dry-run (fresh sandbox) previews without touching disk ---
 H2="$WORK/home2"; mkdir -p "$H2"
 OUT2="$(HOME="$H2" "$CANOPY" setup --dry-run 2>&1)"
