@@ -11,7 +11,7 @@ ok()  { PASS=$((PASS+1)); printf '  \033[32mok\033[0m   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m %s\n' "$1"; }
 command -v git >/dev/null || { echo "git required"; exit 1; }
 command -v jq  >/dev/null || { echo "jq required";  exit 1; }
-ver() { sed -n 's/^CANOPY_VERSION="\(.*\)"/\1/p' "$1/lib/common.sh" | head -1; }
+ver() { sed -n 's/^CANOPY_VERSION="\([^"]*\)".*/\1/p' "$1/lib/common.sh" | head -1; }
 
 echo "== canopy upgrade =="
 
@@ -38,7 +38,7 @@ APP="$H/.local/share/canopy"
 # --- advance origin main via a second clone (bump the version) ---
 C="$WORK/clone"; git clone -q "$ORIGIN" "$C"
 git -C "$C" config user.email t@t; git -C "$C" config user.name t
-sed -i.bak 's/^CANOPY_VERSION=.*/CANOPY_VERSION="9.9.9"/' "$C/lib/common.sh"; rm -f "$C/lib/common.sh.bak"
+sed -i.bak 's/CANOPY_VERSION="[^"]*"/CANOPY_VERSION="9.9.9"/' "$C/lib/common.sh"; rm -f "$C/lib/common.sh.bak"
 git -C "$C" commit -qam "bump to 9.9.9"; git -C "$C" push -q origin main
 
 # --- upgrade from an unrelated cwd, via the installed PATH symlink ---
