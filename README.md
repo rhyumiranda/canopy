@@ -2,6 +2,12 @@
 
 **Run many AI coding agents on one project without drowning in coordination.**
 
+<p align="center">
+  <img src="assets/canopy-demo.gif" alt="Claude Code driving Canopy end-to-end — intent → isolated worker → independent review → a gated PR" width="880">
+  <br>
+  <em>Real Claude Code driving the full run: one line of intent → isolated worker → independent review → a gated PR.</em>
+</p>
+
 Canopy is a thin supervisor that sits one level above your coding agents. It holds the plan, runs each task in its own isolated worktree, has a *separate* agent review every change, ships a clean PR, and only interrupts you when a decision genuinely needs a human. You steer everything from one seat.
 
 MIT-licensed. Local-first. Built on [`treehouse`](https://github.com/kunchenguid/treehouse), `gh-axi`, and Claude Code.
