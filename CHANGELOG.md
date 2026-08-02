@@ -1,0 +1,25 @@
+# Changelog
+
+## [0.2.0](https://github.com/rhyumiranda/canopy/compare/v0.1.0...v0.2.0) (2026-08-02)
+
+
+### Features
+
+* **pr:** auto-derive triage labels so PRs are never unlabeled ([696879e](https://github.com/rhyumiranda/canopy/commit/696879e661a6f65d23cf0439e702920146eb41a2))
+* **pr:** auto-derive triage labels so PRs are never unlabeled ([b955293](https://github.com/rhyumiranda/canopy/commit/b9552934579ca988d8d5858c41c06648dfed494f))
+* **pr:** standardize the PR format and enforce the single open path ([a4e3176](https://github.com/rhyumiranda/canopy/commit/a4e3176889a6c5916974bebec479fa4bb8dde2e2))
+* **pr:** standardize the PR format and enforce the single open path ([41fc915](https://github.com/rhyumiranda/canopy/commit/41fc915ac72341d6153db2eac243d99699c0b344))
+* **release:** automate releases with release-please ([c221110](https://github.com/rhyumiranda/canopy/commit/c2211109e99f8033fd5afee7fc6a22c9dd3665a7))
+* **release:** automate releases with release-please ([3b6c3ef](https://github.com/rhyumiranda/canopy/commit/3b6c3efc29c2082c7fbf36420105d29437cc0f11))
+* **upgrade:** 'canopy upgrade' — update from any directory ([ec65eeb](https://github.com/rhyumiranda/canopy/commit/ec65eeb999865b974c8c363a336a2060fe4d0487))
+* **upgrade:** 'canopy upgrade' — update from any directory ([3a17355](https://github.com/rhyumiranda/canopy/commit/3a173554574b45402251fc163e10a685d3b6d597))
+* **watch:** harden the merge-watcher — self-reconcile, re-arm, status ([6a80e67](https://github.com/rhyumiranda/canopy/commit/6a80e67677bfc6e59bcbce68b84aac232165bf19))
+* **watch:** harden the merge-watcher — self-reconcile, re-arm, status ([e6915d2](https://github.com/rhyumiranda/canopy/commit/e6915d27fe4c63558bb2bb3d6fd37e6519204f66))
+
+
+### Bug Fixes
+
+* **setup:** install a stable CLI snapshot so branch-switching can't break canopy ([f15fc05](https://github.com/rhyumiranda/canopy/commit/f15fc05dac1b6fc105f5ac8030c5ee8d679aca07))
+* **setup:** install a stable CLI snapshot so branch-switching can't break canopy ([ed1e63d](https://github.com/rhyumiranda/canopy/commit/ed1e63d649003764019e8593a07aa020549d1ec7))
+* **watch:** parse PR state without awk (mawk-safe) ([ad49247](https://github.com/rhyumiranda/canopy/commit/ad49247b65b99e9df4a290bbfed1fbaf6782a49a))
+* **watch:** record done before worktree return (can't be aborted) ([4946db5](https://github.com/rhyumiranda/canopy/commit/4946db58152ad4c971e4d2d22227e145b1bf13ee))
