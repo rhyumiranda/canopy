@@ -43,6 +43,14 @@ canopy_setup() {
   _do "cp -R '$CANOPY_ROOT/agents' '$app/agents'"
   _do "ln -sf '$app/bin/canopy' '$bindir/canopy'"
 
+  # Record where this snapshot came from so `canopy upgrade` can pull + reinstall
+  # from any directory without the user cd-ing back to the checkout.
+  if [ "$dry" = 1 ]; then
+    log "[dry-run] record source checkout ($CANOPY_ROOT) in $app/.source"
+  else
+    printf '%s\n' "$CANOPY_ROOT" > "$app/.source"
+  fi
+
   if [ "$dry" = 1 ]; then
     log "[dry-run] install hooks into $settings (or drop snippet beside it)"
   elif [ -f "$settings" ]; then
