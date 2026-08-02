@@ -67,7 +67,9 @@ br="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD || true)"
 git -C "$ROOT" diff --quiet && git -C "$ROOT" diff --cached --quiet \
   || die "tracked changes present — commit or stash before releasing"
 git -C "$ROOT" fetch --quiet origin main || die "cannot fetch origin/main"
-[ "$(git -C "$ROOT" rev-parse HEAD)" = "$(git -C "$ROOT" rev-parse '@{u}')" ] \
+# Compare against origin/main directly, not @{u}: a checkout whose main has no
+# upstream configured has no @{u}, and that must not block a release.
+[ "$(git -C "$ROOT" rev-parse HEAD)" = "$(git -C "$ROOT" rev-parse origin/main)" ] \
   || die "local main is not in sync with origin/main — pull/push first"
 git -C "$ROOT" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 \
   && die "tag $tag already exists"

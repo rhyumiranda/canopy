@@ -79,12 +79,14 @@ Not built for: hosted multi-tenant use, or replacing CI (Canopy *uses* your CI a
 **Install once:**
 ```bash
 git clone https://github.com/rhyumiranda/canopy.git && cd canopy
-./bin/canopy setup                     # agents/commands/hooks -> ~/.claude, canopy -> PATH
+./bin/canopy setup                     # agents/commands/hooks -> ~/.claude; a CLI snapshot -> ~/.local/share/canopy; canopy -> PATH
 export PATH="$HOME/.local/bin:$PATH"   # if it isn't already
 canopy watch install                   # optional (macOS): auto-closes tasks on merge.
                                        # writes a launchd plist; run the printed launchctl command to load it.
                                        # (Linux: schedule `canopy watch once` via cron instead.)
 ```
+
+`setup` installs a **stable snapshot** of the CLI, so the installed `canopy` is decoupled from your dev checkout — switching branches in the repo won't break it. **To update, re-run `./bin/canopy setup` from the checkout** (on the version you want).
 
 **Per project:**
 ```bash
