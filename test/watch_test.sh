@@ -49,9 +49,22 @@ ID="$("$CANOPY" task add "shipped thing" 2>/dev/null)"
 "$CANOPY" task set "$ID" pr 1 >/dev/null
 "$CANOPY" task set "$ID" worktree "$R2" >/dev/null
 "$CANOPY" task status "$ID" pr-open >/dev/null
-PATH="$STUB:$PATH" HOME="$H" "$CANOPY" recover >/dev/null 2>&1 || true
-ST="$(jq -r '.tasks[0].status' "$R2/.canopy/state.json")"
-[ "$ST" = "done" ] && ok "recover reconciled the merged PR -> done (Layer 1 redundancy)" || bad "task should be done after recover, got: $ST"
+# first: watch once directly (isolates the reconcile from recover)
+WO="$(PATH="$STUB:$PATH" "$CANOPY" watch once 2>&1)"
+ST1="$(jq -r '.tasks[0].status' "$R2/.canopy/state.json")"
+if [ "$ST1" = "done" ]; then ok "watch once reconciled merged PR -> done"
+else
+  bad "watch once did not flip (got: $ST1)"
+  echo "    gh-axi resolves to: $(PATH="$STUB:$PATH" command -v gh-axi)"
+  echo "    gh-axi output: [$(PATH="$STUB:$PATH" gh-axi pr view 1 2>&1)]"
+  echo "    pr field: [$(jq -c '.tasks[0].pr' "$R2/.canopy/state.json")]"
+  echo "    watch once said: $WO"
+fi
+# then: recover path (Layer 1)
+"$CANOPY" task status "$ID" pr-open >/dev/null
+RO="$(PATH="$STUB:$PATH" HOME="$H" "$CANOPY" recover 2>&1)"
+ST2="$(jq -r '.tasks[0].status' "$R2/.canopy/state.json")"
+[ "$ST2" = "done" ] && ok "recover reconciled the merged PR -> done (Layer 1 redundancy)" || { bad "recover did not flip (got: $ST2)"; echo "    recover said: $RO"; }
 
 echo
 echo "== $PASS passed, $FAIL failed =="
