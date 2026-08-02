@@ -34,6 +34,15 @@ guard 'git status && git diff' && ok "allows read-only git" || bad "should allow
 # inactive unless orchestrator role
 printf '{"tool_name":"Bash","tool_input":{"command":"echo x > app.py"}}' | bash "$ROOT/hooks/guard-project-write.sh" && ok "guard inactive without orchestrator role" || bad "guard should be inactive without role"
 
+# --- pr-create guard: PRs must go through 'canopy pr open', not gh/gh-axi directly ---
+prguard() { printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(jq -Rn --arg c "$1" '$c')" | CANOPY_ROLE=orchestrator bash "$ROOT/hooks/guard-pr-create.sh"; }
+prguard 'gh pr create --title x --body y'      && bad "should block gh pr create"      || ok "blocks 'gh pr create'"
+prguard 'gh-axi pr create --title x'           && bad "should block gh-axi pr create"  || ok "blocks 'gh-axi pr create'"
+prguard 'canopy pr open t1'                    && ok "allows 'canopy pr open'"          || bad "should allow canopy pr open"
+prguard 'gh pr view 5 && gh pr checks 5'       && ok "allows other gh pr subcommands"   || bad "should allow gh pr view/checks"
+# inactive unless orchestrator role
+printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create"}}' | bash "$ROOT/hooks/guard-pr-create.sh" && ok "pr-guard inactive without orchestrator role" || bad "pr-guard should be inactive without role"
+
 # --- block-PR-until-reviewed ---
 R2="$WORK/repo2"; mkdir -p "$R2"; ( cd "$R2"; git init -q; git config user.email t@t; git config user.name t; echo x>f; git add -A; git commit -qm i )
 ( cd "$R2" && "$CANOPY" init >/dev/null 2>&1 )

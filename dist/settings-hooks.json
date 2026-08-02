@@ -1,5 +1,5 @@
 {
-  "_comment": "Canopy hooks. `canopy setup` merges this into ~/.claude/settings.json and copies hooks/ to ~/.claude/canopy/hooks/. SessionStart re-injects the state digest on every session boundary; PreToolUse guards the orchestrator against writing to the project tree (only active when CANOPY_ROLE=orchestrator).",
+  "_comment": "Canopy hooks. `canopy setup` merges this into ~/.claude/settings.json and copies hooks/ to ~/.claude/canopy/hooks/. SessionStart re-injects the state digest on every session boundary; PreToolUse guards (only active when CANOPY_ROLE=orchestrator) block the orchestrator from writing to the project tree and from opening PRs directly with gh/gh-axi (use 'canopy pr open').",
   "hooks": {
     "SessionStart": [
       {
@@ -13,7 +13,8 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash ~/.claude/canopy/hooks/guard-project-write.sh" }
+          { "type": "command", "command": "bash ~/.claude/canopy/hooks/guard-project-write.sh" },
+          { "type": "command", "command": "bash ~/.claude/canopy/hooks/guard-pr-create.sh" }
         ]
       }
     ]

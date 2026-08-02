@@ -26,4 +26,5 @@ Fix exactly those issues, re-run the free deterministic checks, and commit again
 ## Rules
 - One task at a time; don't touch unrelated features (orthogonality — don't break what you didn't mean to).
 - Fix bugs you hit along the way.
+- **Never open a PR** (no `gh`/`gh-axi pr create`, no push to the default branch). The orchestrator opens PRs via `canopy pr open`, which renders the standard body. Your job ends at a committed, checks-green branch.
 - Report a tight summary of what changed and why (this is data the orchestrator reads), plus the branch name and check results. Never dump the whole diff.

@@ -30,10 +30,15 @@ _verify_cmd() {
   printf '%s\n' "${t:-canopy checks run}"
 }
 
+# The one canonical Canopy PR body. Every PR goes through here (via `canopy pr
+# open`) so the format is identical across workers and repos — no hand-rolled
+# variations. Sections mirror what makes a PR reviewable: Summary, Why, What
+# changed, Testing (checks + review + how-to-verify), Risk/breaking, Files.
 _pr_body() {
-  local id="$1" wt="$2" base="$3" tf title what why issue breaking stat verify
+  local id="$1" wt="$2" base="$3" tf title summary what why issue breaking stat verify
   tf="$(task_file "$id")"
   title="$(jq -r '.title' "$tf")"
+  summary="$(jq -r '.summary // ""' "$tf")"
   what="$(jq -r '.what // .brief // ""' "$tf")"
   why="$(jq -r '.why // ""' "$tf")"
   issue="$(jq -r '.issue // empty' "$tf")"
@@ -46,19 +51,18 @@ _pr_body() {
   cat <<EOF
 ${title}
 
-**What** — ${what:-_(not specified)_}
+**Summary** — ${summary:-$title}
 **Why** — ${why:-_(not specified)_}$([ -n "$issue" ] && printf '   ·   Closes #%s' "$issue")
 
-## How to verify
-\`\`\`bash
-${verify}
-\`\`\`
+## What changed
+${what:-_(not specified)_}
 
-## Checks
-$(jq -r '.checks_line // "(not recorded)"' "$tf")
+## Testing
+$(jq -r '.checks_line // "(checks not recorded)"' "$tf")
 $(_review_line "$tf")
+Verify: \`${verify}\`
 
-## Breaking changes
+## Risk / breaking
 ${breaking:-None.}
 
 ## Files (${nf}, +${ins}/-${del})
@@ -89,6 +93,10 @@ canopy_pr_open() {
     [ "${CANOPY_SKIP_CHECKS:-0}" = "1" ] || die "task $id has failing checks: $checks_line (fix them, or CANOPY_SKIP_CHECKS=1)"
   fi
   task_set "$id" checks_line "$checks_line" >/dev/null
+
+  # Nudge (not a gate): a standard PR wants both fields filled.
+  [ -n "$(jq -r '.what // .brief // ""' "$tf")" ] || warn "task $id has no brief — PR 'What changed' will be blank (canopy task set $id brief \"…\")"
+  [ -n "$(jq -r '.why // ""' "$tf")" ] || warn "task $id has no why — PR 'Why' will be blank (canopy task set $id why \"…\")"
 
   base="$(_default_branch "$wt")"
   title="$(git -C "$wt" log -1 --pretty=%s)"
