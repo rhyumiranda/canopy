@@ -1,7 +1,7 @@
 # common.sh — shared helpers (logging, paths, guards). Sourced, not executed.
 # shellcheck shell=bash
 
-CANOPY_VERSION="0.1.0-dev"
+CANOPY_VERSION="0.1.0"
 export CANOPY_VERSION
 
 # --- logging (all to stderr so stdout stays machine-parseable) ---
