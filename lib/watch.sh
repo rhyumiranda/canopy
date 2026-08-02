@@ -18,9 +18,12 @@ _notify() {
 _pr_is_merged() {
   # Key on the `state:` field (open|merged|closed) — reliable. The `merged:` field
   # is a timestamp when merged, so it's not a yes/no.
+  # grep/sed/tr, not awk: ubuntu's awk is mawk, whose regex/[[:space:]] handling
+  # differs from BSD awk and silently mis-parses the state line.
   local pr="$1" st
-  st="$(gh-axi pr view "$pr" 2>/dev/null | awk -F': *' 'tolower($1)~/(^|[[:space:]])state$/{print tolower($2); exit}')"
-  st="${st//\"/}"
+  st="$(gh-axi pr view "$pr" 2>/dev/null \
+        | grep -iE '^[[:space:]]*state[[:space:]]*:' | head -1 \
+        | sed 's/^[^:]*:[[:space:]]*//' | tr -d '"' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   [ "$st" = "merged" ]
 }
 
