@@ -46,9 +46,13 @@ canopy_watch_once() {
     pr="$(jq -r --arg id "$id" '.tasks[]|select(.id==$id)|.pr' "$sf")"
     if _pr_is_merged "$pr"; then
       _notify "task $id merged (PR #$pr) — returning worktree"
-      canopy_worktree_return "$id" 2>/dev/null || warn "watch: return had an issue for $id"
+      # Record the terminal state FIRST, so worktree cleanup can never leave the
+      # task stuck at pr-open. Run the return in a subshell: it may `die` (e.g. no
+      # treehouse), and `die` exits the shell — a subshell contains that so the
+      # reconcile continues.
       task_status "$id" merged >/dev/null
       task_status "$id" "done" >/dev/null
+      ( canopy_worktree_return "$id" ) >/dev/null 2>&1 || warn "watch: worktree return had an issue for $id"
     else
       info "watch: PR #$pr still open ($id)"
     fi
