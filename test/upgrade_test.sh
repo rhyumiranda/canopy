@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # canopy upgrade: from any directory, pulls the recorded source checkout to latest
-# origin/main and reinstalls the snapshot. Uses a bare origin + a source clone,
-# sandboxed via $HOME. Run: bash test/upgrade_test.sh
+# origin/main and reinstalls the snapshot. Built with git's own machinery (clone
+# the repo -> bare origin) so it's platform-stable; sandboxed via $HOME.
+# Run: bash test/upgrade_test.sh
 set -uo pipefail
 CANOPY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PASS=0; FAIL=0
@@ -20,13 +21,13 @@ if HOME="$H0" bash "$CANOPY_ROOT/bin/canopy" upgrade >/dev/null 2>&1; then
   bad "upgrade with no .source should fail"
 else ok "upgrade fails cleanly with no install record"; fi
 
-# --- bare origin + a source checkout tracking it ---
-ORIGIN="$WORK/origin.git"; git init -q --bare "$ORIGIN"
-S="$WORK/src"; mkdir -p "$S"; S="$(cd "$S" && pwd -P)"   # physical path: canopy records CANOPY_ROOT via `cd -P` (macOS /var -> /private/var)
-for d in bin lib agents commands hooks dist; do cp -R "$CANOPY_ROOT/$d" "$S/$d"; done
-( cd "$S"; git init -q; git config user.email t@t; git config user.name t
-  git add -A; git commit -qm init; git branch -M main
-  git remote add origin "$ORIGIN"; git push -q -u origin main )
+# --- source checkout S = a real clone of this repo, on main, tracking a bare origin ---
+S="$WORK/src"; git clone -q "$CANOPY_ROOT" "$S"; S="$(cd "$S" && pwd -P)"
+git -C "$S" config user.email t@t; git -C "$S" config user.name t
+git -C "$S" checkout -q -B main
+ORIGIN="$WORK/origin.git"; git clone -q --bare "$S" "$ORIGIN"
+git -C "$S" remote set-url origin "$ORIGIN"
+git -C "$S" push -q -u origin main 2>/dev/null
 
 # --- install from S into a sandbox HOME (records .source) ---
 H="$WORK/home"; mkdir -p "$H"
@@ -36,9 +37,9 @@ APP="$H/.local/share/canopy"
 
 # --- advance origin main via a second clone (bump the version) ---
 C="$WORK/clone"; git clone -q "$ORIGIN" "$C"
-( cd "$C"; git config user.email t@t; git config user.name t
-  sed -i.bak 's/^CANOPY_VERSION=.*/CANOPY_VERSION="9.9.9"/' lib/common.sh; rm -f lib/common.sh.bak
-  git commit -qam "bump to 9.9.9"; git push -q origin main )
+git -C "$C" config user.email t@t; git -C "$C" config user.name t
+sed -i.bak 's/^CANOPY_VERSION=.*/CANOPY_VERSION="9.9.9"/' "$C/lib/common.sh"; rm -f "$C/lib/common.sh.bak"
+git -C "$C" commit -qam "bump to 9.9.9"; git -C "$C" push -q origin main
 
 # --- upgrade from an unrelated cwd, via the installed PATH symlink ---
 [ "$(ver "$S")" != "9.9.9" ] && ok "source is behind before upgrade" || bad "source already at target"
