@@ -31,6 +31,8 @@ canopy_setup() {
     info "wrote $settings with Canopy hooks"
   fi
 
-  info "canopy setup ${dry:+(dry-run) }done: agents + commands + hooks + PATH symlink"
+  # NB: not "${dry:+…}" — dry=0 is a non-empty string, so it would fire on a real run.
+  local drytag=""; [ "$dry" = 1 ] && drytag="(dry-run) "
+  info "canopy setup ${drytag}done: agents + commands + hooks + PATH symlink"
   info "ensure '$bindir' is on your PATH (e.g. export PATH=\"\$HOME/.local/bin:\$PATH\")"
 }
