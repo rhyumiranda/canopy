@@ -19,12 +19,12 @@ canopy_upgrade() {
   git -C "$src" diff --quiet && git -C "$src" diff --cached --quiet \
     || die "source checkout has uncommitted changes ($src) — commit or stash there first"
 
-  before="$(sed -n 's/^CANOPY_VERSION="\(.*\)"/\1/p' "$src/lib/common.sh" | head -1)"
+  before="$(sed -n 's/^CANOPY_VERSION="\([^"]*\)".*/\1/p' "$src/lib/common.sh" | head -1)"
   git -C "$src" fetch --quiet origin main || die "cannot fetch origin/main"
   git -C "$src" checkout -q main || die "cannot switch $src to main"
   git -C "$src" merge --ff-only origin/main >/dev/null 2>&1 \
     || die "$src main is not fast-forwardable (local commits?) — resolve it there, then retry"
-  after="$(sed -n 's/^CANOPY_VERSION="\(.*\)"/\1/p' "$src/lib/common.sh" | head -1)"
+  after="$(sed -n 's/^CANOPY_VERSION="\([^"]*\)".*/\1/p' "$src/lib/common.sh" | head -1)"
 
   # Re-install the snapshot from the freshly updated source.
   CANOPY_ROOT="$src" "$src/bin/canopy" setup >/dev/null || die "reinstall (setup) failed"

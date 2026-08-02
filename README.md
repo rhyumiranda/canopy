@@ -147,6 +147,8 @@ bash test/all.sh        # runs every suite; needs jq + git (+ treehouse for work
 
 **Sending a change:** open an issue for anything non-trivial first, keep PRs atomic, explain the *what* and *why*, and note anything you couldn't test. (Canopy dogfoods this workflow — feel free to let Canopy open the PR.)
 
+**Releasing (automatic):** releases run on [release-please](https://github.com/googleapis/release-please). Merging `feat:`/`fix:` commits to `main` keeps a **release PR** open that bumps `CANOPY_VERSION` and writes `CHANGELOG.md`; **merge that PR** to tag `vX.Y.Z` and publish the GitHub Release. No manual version bump, tag, or push. `fix:` → patch, `feat:` → minor, `feat!:`/`BREAKING CHANGE:` → major.
+
 ## License
 
 MIT © Rhyu Miranda. See [`LICENSE`](LICENSE).
