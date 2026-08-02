@@ -37,6 +37,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/scribe.sh"
 # shellcheck source=../lib/setup.sh
 . "$CANOPY_ROOT/lib/setup.sh"
+# shellcheck source=../lib/upgrade.sh
+. "$CANOPY_ROOT/lib/upgrade.sh"
 # shellcheck source=../lib/recover.sh
 . "$CANOPY_ROOT/lib/recover.sh"
 # shellcheck source=../lib/start.sh
@@ -61,6 +63,7 @@ commands:
   scribe replace <n> <fact>  Rewrite entry n in place
   scribe rm <n>        Delete a stale entry
   mode [yolo|guided]   Get or set the global mode
+  upgrade              Pull latest + reinstall the CLI (from any directory)
   version              Print version
 
 run 'canopy <command> -h' where available.
@@ -135,6 +138,7 @@ case "$cmd" in
       *)         die "unknown 'scribe' subcommand: ${sub:-<none>}" ;;
     esac ;;
   setup)         canopy_setup "$@" ;;
+  upgrade)       canopy_upgrade "$@" ;;
   mode)          state_mode "$@" ;;
   version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;
   ""|-h|--help|help) usage ;;

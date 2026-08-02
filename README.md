@@ -86,7 +86,7 @@ canopy watch install                   # optional (macOS): auto-closes tasks on 
                                        # (Linux: schedule `canopy watch once` via cron instead.)
 ```
 
-`setup` installs a **stable snapshot** of the CLI, so the installed `canopy` is decoupled from your dev checkout — switching branches in the repo won't break it. **To update, re-run `./bin/canopy setup` from the checkout** (on the version you want).
+`setup` installs a **stable snapshot** of the CLI, so the installed `canopy` is decoupled from your dev checkout — switching branches in the repo won't break it. **To update, just run `canopy upgrade` from anywhere** — it pulls the checkout to latest `main` and reinstalls the snapshot (no need to `cd` back to the repo).
 
 **Per project:**
 ```bash
@@ -120,7 +120,7 @@ canopy status                          # the board
 
 Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
 
-Full CLI: `init · start · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · recover · setup`.
+Full CLI: `init · start · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
 
 **How it works:** the *behavior* lives in `agents/` (orchestrator, worker, reviewer) and `commands/` (the skills above); the `lib/` shell scripts are the deterministic glue. It's small — read the code.
 
