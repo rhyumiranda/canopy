@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/rhyumiranda/canopy/compare/v0.2.0...v0.3.0) (2026-08-02)
+
+
+### Features
+
+* **worker:** run the scribe ladder so durable lessons get captured ([00b20df](https://github.com/rhyumiranda/canopy/commit/00b20df1f4c0488d2eb2dd38b4190a90293914df))
+
 ## [0.2.0](https://github.com/rhyumiranda/canopy/compare/v0.1.0...v0.2.0) (2026-08-02)
 
 
