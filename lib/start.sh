@@ -6,7 +6,7 @@
 # hook is active), then orients itself from .canopy/ and recovers in-flight work.
 
 canopy_start() {
-  require_canopy; need claude
+  require_canopy
   local dry=0; [ "${1:-}" = "--dry-run" ] && dry=1
   local body prompt
   body="$(_agent_body orchestrator)"
@@ -20,6 +20,7 @@ canopy_start() {
     return 0
   fi
 
+  need claude   # only a real launch needs claude; --dry-run is a dependency-free preview
   info "launching Claude Code as the Canopy orchestrator…"
   CANOPY_ROLE=orchestrator exec claude --append-system-prompt "$body" "$prompt"
 }

@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # The suite shells out to the agent CLIs (claude, gh-axi) only to check
+      # they exist / to preview; it never needs their real behavior. Stub them so
+      # the full suite runs hermetically. treehouse-backed suites self-skip when
+      # treehouse is absent, which is fine here.
+      - name: Stub external agent CLIs
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          for cli in claude gh-axi; do
+            printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/.local/bin/$cli"
+            chmod +x "$HOME/.local/bin/$cli"
+          done
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run test suite
+        run: bash test/all.sh
