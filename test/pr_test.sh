@@ -38,18 +38,23 @@ WT="$WORK/wt"; cp -r "$R" "$WT"; ( cd "$WT"; printf 'health\n' >> f; echo new>g;
 BASE="$(git -C "$WT" rev-parse HEAD~1)"
 
 BODY="$(_pr_body "$ID" "$WT" "$BASE")"
-has "$BODY" "**What** — adds GET /health returning 200 ok"
+has "$BODY" "**Summary** — add /health endpoint"   # falls back to title when no summary set
 has "$BODY" "**Why** — the load balancer needs a liveness probe"
 has "$BODY" "Closes #42"
-has "$BODY" "## How to verify"
-has "$BODY" "curl localhost:3000/health"
-has "$BODY" "🔍 Independent review: **clean** — small, well-tested, docs updated"
+has "$BODY" "## What changed"
+has "$BODY" "adds GET /health returning 200 ok"
+has "$BODY" "## Testing"
 has "$BODY" "✅ test  ✅ lint"
-has "$BODY" "## Breaking changes"
+has "$BODY" "🔍 Independent review: **clean** — small, well-tested, docs updated"
+has "$BODY" "Verify: \`curl localhost:3000/health\`"
+has "$BODY" "## Risk / breaking"
 has "$BODY" "none, additive only"
 printf '%s' "$BODY" | grep -qE '## Files \([0-9]+, \+[0-9]+/-[0-9]+\)' && ok "files line has scope (n, +x/-y)" || bad "no scope on files line"
-# combined section must be gone
-printf '%s' "$BODY" | grep -qi 'What & why' && bad "still has combined 'What & why'" || ok "no combined What & why"
+
+# an explicit summary overrides the title fallback
+"$CANOPY" task set "$ID" summary "one-line elevator pitch" >/dev/null
+BODY2="$(_pr_body "$ID" "$WT" "$BASE")"
+has "$BODY2" "**Summary** — one-line elevator pitch"
 
 echo
 echo "== $PASS passed, $FAIL failed =="
