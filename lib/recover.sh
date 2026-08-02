@@ -20,6 +20,14 @@ canopy_recover() {
   require_canopy; need jq; need git
   local ids
   if [ "${1:-}" = "list" ]; then canopy_recover_list; return 0; fi
+
+  # Redundancy for the merge-watcher (Layers 1 & 2): on every startup/recover,
+  # reconcile merged PRs ourselves — this runs in the session's permission context,
+  # so merges are caught even if the background watcher is dead or TCC-blocked —
+  # and re-arm the daemon if it dropped. Best-effort; never blocks recovery.
+  if command -v gh-axi >/dev/null 2>&1; then canopy_watch_once >/dev/null 2>&1 || true; fi
+  canopy_watch_ensure >/dev/null 2>&1 || true
+
   if [ $# -gt 0 ]; then ids="$1"; else ids="$(canopy_recover_list)"; fi
   if [ -z "$ids" ]; then info "recover: nothing in flight"; return 0; fi
 

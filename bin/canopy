@@ -113,6 +113,8 @@ case "$cmd" in
     case "$sub" in
       once)      canopy_watch_once "$@" ;;
       install)   canopy_watch_install "$@" ;;
+      ensure)    canopy_watch_ensure ;;
+      status)    canopy_watch_status ;;
       ""|loop)   canopy_watch "$@" ;;
       *)         die "unknown 'watch' subcommand: ${sub:-<none>}" ;;
     esac ;;
