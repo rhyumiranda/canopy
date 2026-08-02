@@ -56,6 +56,23 @@ printf '%s' "$BODY" | grep -qE '## Files \([0-9]+, \+[0-9]+/-[0-9]+\)' && ok "fi
 BODY2="$(_pr_body "$ID" "$WT" "$BASE")"
 has "$BODY2" "**Summary** — one-line elevator pitch"
 
+echo "== triage labels =="
+TF="$(task_file "$ID")"
+# conventional-commit type -> label
+[ "$(_label_for_type 'fix: null check')"        = bug ]           && ok "fix -> bug"            || bad "fix should map to bug"
+[ "$(_label_for_type 'feat(pr): add x')"        = enhancement ]   && ok "feat(scope) -> enhancement" || bad "feat should map to enhancement"
+[ "$(_label_for_type 'perf: speed up')"         = enhancement ]   && ok "perf -> enhancement"   || bad "perf should map to enhancement"
+[ "$(_label_for_type 'docs: readme')"           = documentation ] && ok "docs -> documentation" || bad "docs should map to documentation"
+[ -z "$(_label_for_type 'chore: bump deps')" ]                    && ok "chore -> no label"     || bad "chore should map to nothing"
+# derived label applied when none set
+"$CANOPY" task set "$ID" labels "" >/dev/null 2>&1 || true
+[ "$(_pr_labels "$TF" 'fix: x')" = bug ] && ok "unlabeled task gets derived 'bug' from a fix: title" || bad "no derived label"
+# explicit labels union with derived, de-duplicated
+"$CANOPY" task set "$ID" labels "urgent bug" >/dev/null
+LBLS="$(_pr_labels "$TF" 'fix: x')"
+case " $LBLS " in *" urgent "*) case " $LBLS " in *" bug "*) ok "explicit + derived union" ;; *) bad "missing bug: $LBLS" ;; esac ;; *) bad "missing urgent: $LBLS" ;; esac
+[ "$(printf '%s' "$LBLS" | tr ' ' '\n' | grep -c '^bug$')" = 1 ] && ok "no duplicate 'bug'" || bad "duplicate label: $LBLS"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

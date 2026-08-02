@@ -73,6 +73,35 @@ $stat
 EOF
 }
 
+# conventional-commit type in a title -> triage label ("" if none maps).
+# So a PR is labeled for triage from the commit type the worker already writes.
+_label_for_type() {
+  local t="${1%%:*}"          # "feat(pr): x" -> "feat(pr)" ; "fix: x" -> "fix"
+  t="${t%%(*}"                # strip an optional (scope)
+  t="$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  case "$t" in
+    fix|bugfix|hotfix) printf 'bug' ;;
+    feat|feature)      printf 'enhancement' ;;
+    perf)              printf 'enhancement' ;;
+    docs)              printf 'documentation' ;;
+    *)                 printf '' ;;
+  esac
+}
+
+# Final label set for a PR: explicit .labels UNION the type-derived label,
+# de-duplicated. Explicit labels always win; the derived one guarantees a triage
+# label even when none was set by hand.
+_pr_labels() {
+  local tf="$1" title="$2" explicit derived out seen l
+  explicit="$(jq -r '.labels // empty | if type=="array" then join(" ") else . end' "$tf")"
+  derived="$(_label_for_type "$title")"
+  out=""; seen=" "
+  for l in $explicit $derived; do
+    case "$seen" in *" $l "*) ;; *) out="${out:+$out }$l"; seen="$seen$l ";; esac
+  done
+  printf '%s' "$out"
+}
+
 # canopy pr open <id>  -> prints the PR number
 canopy_pr_open() {
   require_canopy; need gh-axi; need git; need jq
@@ -106,9 +135,16 @@ canopy_pr_open() {
 
   body="$(_pr_body "$id" "$wt" "$base")"
 
-  # optional labels: .labels may be a JSON array or a space-separated string
-  local -a label_args=(); labels="$(jq -r '.labels // empty | if type=="array" then join(" ") else . end' "$tf")"
-  local l; for l in $labels; do label_args+=(--label "$l"); done
+  # Triage labels: explicit .labels UNION a label derived from the conventional-
+  # commit type in the title, so a PR is never unlabeled for triage. Ensure each
+  # label exists first — gh refuses --label for a label the repo doesn't have.
+  local -a label_args=(); local l
+  labels="$(_pr_labels "$tf" "$title")"
+  [ -n "$labels" ] || warn "task $id PR has no triage label — title isn't a conventional commit; set one with 'canopy task set $id labels \"bug\"'"
+  for l in $labels; do
+    ( cd "$wt" && gh-axi label create "$l" >/dev/null 2>&1 ) || true   # idempotent: ignore "already exists"
+    label_args+=(--label "$l")
+  done
 
   # NB: expand as ${arr[@]+"${arr[@]}"} — on bash 3.2 (macOS) "${arr[@]}" on an
   # empty array trips `set -u` with "unbound variable".
