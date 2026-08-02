@@ -4,8 +4,17 @@
 set -euo pipefail
 
 # Resolve the canopy install root (this file lives in <root>/bin/canopy).
-CANOPY_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `canopy setup` symlinks this onto PATH (~/.local/bin/canopy), so BASH_SOURCE may
+# be a symlink — follow the chain to the real file, else lib/ can't be found.
+_src="${BASH_SOURCE[0]}"
+while [ -h "$_src" ]; do
+  _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+  _src="$(readlink "$_src")"
+  case "$_src" in /*) ;; *) _src="$_dir/$_src" ;; esac
+done
+CANOPY_BIN="$(cd -P "$(dirname "$_src")" && pwd)"
 CANOPY_ROOT="$(cd "$CANOPY_BIN/.." && pwd)"
+unset _src _dir
 export CANOPY_ROOT
 
 # shellcheck source=../lib/common.sh
