@@ -102,7 +102,9 @@ canopy_pr_open() {
   local -a label_args=(); labels="$(jq -r '.labels // empty | if type=="array" then join(" ") else . end' "$tf")"
   local l; for l in $labels; do label_args+=(--label "$l"); done
 
-  out="$( cd "$wt" && gh-axi pr create --title "$title" --body "$body" --base "$base" --head "$branch" "${label_args[@]}" 2>&1 )"
+  # NB: expand as ${arr[@]+"${arr[@]}"} — on bash 3.2 (macOS) "${arr[@]}" on an
+  # empty array trips `set -u` with "unbound variable".
+  out="$( cd "$wt" && gh-axi pr create --title "$title" --body "$body" --base "$base" --head "$branch" ${label_args[@]+"${label_args[@]}"} 2>&1 )"
   prnum="$(printf '%s' "$out" | grep -oE '/pull/[0-9]+|#[0-9]+' | grep -oE '[0-9]+' | head -1)"
   if [ -z "$prnum" ]; then warn "could not parse PR number:"; printf '%s\n' "$out" >&2; die "pr create may have failed"; fi
 
