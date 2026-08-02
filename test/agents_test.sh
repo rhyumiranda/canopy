@@ -35,6 +35,12 @@ fi
 grep -qiE '\-w|worktree isolation|git worktree add|EnterWorktree' "$ROOT/agents/worker.md" \
   && ok "worker prompt addresses the no-extra-worktree rule" || bad "worker prompt missing worktree rule"
 
+# worker MUST wire the scribe ladder (else no agent ever reaches the durable-knowledge gate)
+WF="$ROOT/agents/worker.md"
+grep -qi 'canopy scribe list'   "$WF" && ok "worker runs the scribe ladder (inspect step)"        || bad "worker missing scribe-ladder inspect (canopy scribe list)"
+grep -qiE 'canopy scribe (add|replace|rm)' "$WF" && ok "worker can place a scribe entry"          || bad "worker missing scribe placement (add/replace/rm)"
+grep -qi 'proportion'           "$WF" && ok "worker states scribe proportionality (may record nothing)" || bad "worker missing scribe proportionality guard"
+
 # reviewer MUST pin a (cheap) model and demand structured JSON
 has "$ROOT/agents/reviewer.md" '^model:' && ok "reviewer pins a model" || bad "reviewer missing model"
 grep -qi '"verdict"' "$ROOT/agents/reviewer.md" && ok "reviewer specifies structured verdict" || bad "reviewer missing verdict schema"

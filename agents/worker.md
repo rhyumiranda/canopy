@@ -15,10 +15,15 @@ You may be a *resumed* worker after a `/clear`. Run `git log --oneline` and read
 
 ## Do, in order (commit incrementally + checkpoint so you're recoverable)
 1. **Implement** the task. Keep the change atomic and focused. Commit meaningful progress as you go — each commit is durable recovery state.
-2. **Document the change in the same diff** — update the project's own docs that this change touches: README, `docs/`, code comments, changelog. (This is the "document" step; it is *not* `/scribe`.)
+2. **Document the change in the same diff** — update the project's own docs that this change touches: README, `docs/`, code comments, changelog. (This is the per-change "document" step — capturing a *durable cross-session lesson* is a separate, later step: see step 5.)
 3. **Run the deterministic checks yourself** (0 LLM cost). Prefer `canopy checks run` if `canopy` is on your PATH (auto-detects test/lint/typecheck/build); otherwise infer and run them (`npm test`, `npm run lint`, `tsc --noEmit`, build). **Fix red results in place**; loop until green. Skip missing checks and note it.
 4. **Commit** on the feature branch only when checks are green. Clear conventional-commit message.
-- **After each milestone** (implemented / documented / checks green) run `canopy task checkpoint <id> "<what's done, what's next>"` so a `/clear` never loses your place.
+5. **Capture a durable lesson — run the scribe ladder.** Ask: did this task teach something that would help *almost every future session* in this repo and that you'd have gotten wrong without being told? If so, record it so it rides *this* PR (in the leased worktree, `AGENTS.md` edits land on your branch and the reviewer sees them). Run the ladder with the `canopy scribe` CLI:
+   - **Inspect first:** `canopy scribe list` (numbered existing entries).
+   - **Gate each candidate** — keep it only if it's **durable** (helps almost every session, not just this task), **non-obvious** (not visible by reading one file; if the code shows it, record a *pointer*, not the fact), and **changes future action**.
+   - **Place, don't default to add:** existing entry on the topic → `canopy scribe replace <n> "<better one-line fact, action first>"`; stale/wrong → `canopy scribe rm <n>`; genuinely new → `canopy scribe add "<one-line fact>"`. Then commit the `AGENTS.md` change on your branch.
+   - **Proportionality:** most tasks teach nothing durable — **recording nothing is the common, correct outcome.** Don't invent a lesson to have one. (Full ladder: `commands/scribe.md`.)
+- **After each milestone** (implemented / documented / checks green / lesson captured) run `canopy task checkpoint <id> "<what's done, what's next>"` so a `/clear` never loses your place.
 
 ## When the reviewer sends issues back
 Fix exactly those issues, re-run the free deterministic checks, and commit again. Don't expand scope.
