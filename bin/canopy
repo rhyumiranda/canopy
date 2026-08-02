@@ -47,6 +47,10 @@ commands:
   task set <id> <k> <v>  Set a field on a task
   task status <id> <s>   Set a task's status
   task show <id>       Print a task's full detail
+  scribe list          List durable AGENTS.md entries (numbered)
+  scribe add <fact>    Append a durable, project-intrinsic fact
+  scribe replace <n> <fact>  Rewrite entry n in place
+  scribe rm <n>        Delete a stale entry
   mode [yolo|guided]   Get or set the global mode
   version              Print version
 
@@ -115,6 +119,9 @@ case "$cmd" in
     sub="${1:-}"; shift || true
     case "$sub" in
       add)       canopy_scribe_add "$@" ;;
+      list)      canopy_scribe_list ;;
+      replace)   canopy_scribe_replace "$@" ;;
+      rm)        canopy_scribe_rm "$@" ;;
       show)      canopy_scribe_show ;;
       *)         die "unknown 'scribe' subcommand: ${sub:-<none>}" ;;
     esac ;;
