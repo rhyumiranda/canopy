@@ -5,6 +5,7 @@ node_modules/
 *.log
 # canopy runtime state (belongs in target projects, never in this repo)
 .canopy/
+treehouse.toml
 # local env
 .env
 .env.local
