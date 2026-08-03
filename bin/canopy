@@ -29,6 +29,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/worktree.sh"
 # shellcheck source=../lib/worker.sh
 . "$CANOPY_ROOT/lib/worker.sh"
+# shellcheck source=../lib/herdr.sh
+. "$CANOPY_ROOT/lib/herdr.sh"
 # shellcheck source=../lib/checks.sh
 . "$CANOPY_ROOT/lib/checks.sh"
 # shellcheck source=../lib/review.sh
@@ -102,6 +104,12 @@ case "$cmd" in
   worker)
     sub="${1:-}"; shift || true
     case "$sub" in
+      start)      canopy_worker_start "$@" ;;
+      attach)     canopy_worker_attach "$@" ;;
+      send)       canopy_worker_send "$@" ;;
+      status)     canopy_worker_status "$@" ;;
+      resume)     canopy_worker_resume "$@" ;;
+      close)      canopy_worker_close "$@" ;;
       spawn)     canopy_worker_spawn "$@" ;;
       fix)       canopy_worker_fix "$@" ;;
       logs)      canopy_worker_logs "$@" ;;

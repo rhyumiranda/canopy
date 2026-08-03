@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.8.0](https://github.com/rhyumiranda/canopy/compare/v0.7.1...v0.8.0) (2026-08-03)
+
+
+### Features
+
+* **worker:** add Herdr terminal worker workflow ([568e6d8](https://github.com/rhyumiranda/canopy/commit/568e6d829f8ba1bd704146f53194a191f40e38e2))
+
+## [0.7.1](https://github.com/rhyumiranda/canopy/compare/v0.7.0...v0.7.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **review:** follow orchestrator harness ([d116c84](https://github.com/rhyumiranda/canopy/commit/d116c84cf3d5ff04cf062a6142c9b7581d4963e2))
+* **review:** keep Claude as default reviewer ([1a414b1](https://github.com/rhyumiranda/canopy/commit/1a414b18b597db0f149e24423a7759d516e2f531))
+* **setup:** use canonical channel upstream ([f66fc1c](https://github.com/rhyumiranda/canopy/commit/f66fc1cd7a48b91c8b5678926c75f6a1bf216902))
+* stabilize Codex setup and start ([d268d19](https://github.com/rhyumiranda/canopy/commit/d268d198855a03a64560229cf7ef68086f1834b4))
+* **start:** bypass Codex permission prompts ([53e5b03](https://github.com/rhyumiranda/canopy/commit/53e5b0337452ba3117da57a5cf81031b79a56e4f))
+
+## [0.7.0](https://github.com/rhyumiranda/canopy/compare/v0.6.0...v0.7.0) (2026-08-03)
+
+
+### Features
+
+* **setup:** install codex skills ([cc8be9b](https://github.com/rhyumiranda/canopy/commit/cc8be9bb17342b1cad0036e177e5674b435d696c))
+* **setup:** install codex skills ([6281313](https://github.com/rhyumiranda/canopy/commit/62813137cab6f55a69d9b25bb1db78a4f30e971e))
+
+## [0.6.0](https://github.com/rhyumiranda/canopy/compare/v0.5.0...v0.6.0) (2026-08-03)
+
+
+### Features
+
+* **setup:** add stable and codex-preview channels ([be0f602](https://github.com/rhyumiranda/canopy/commit/be0f6027777f7a19c5d8c704f7f27bc1fb4f09d2))
+* **setup:** add stable and codex-preview channels ([7923c5b](https://github.com/rhyumiranda/canopy/commit/7923c5b93879a78f248c6fc57952e05b473930d2))
+
 ## [0.5.0](https://github.com/rhyumiranda/canopy/compare/v0.4.0...v0.5.0) (2026-08-03)
 
 

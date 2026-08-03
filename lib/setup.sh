@@ -90,16 +90,17 @@ canopy_setup() {
       --channel)
         shift
         case "${1:-}" in
-          stable|codex-preview) channel="$1" ;;
-          *) die "unknown setup channel: ${1:-<none>} (use stable or codex-preview)" ;;
+          stable|codex-preview|herdr-preview) channel="$1" ;;
+          *) die "unknown setup channel: ${1:-<none>} (use stable, codex-preview, or herdr-preview)" ;;
         esac
         ;;
       -h|--help)
         cat <<'EOF'
-usage: canopy setup [--dry-run] [--channel stable|codex-preview]
+usage: canopy setup [--dry-run] [--channel stable|codex-preview|herdr-preview]
 
   --channel stable         Install the stable channel (default)
   --channel codex-preview  Install the experimental Codex preview channel
+  --channel herdr-preview  Install the experimental Herdr worker channel
 EOF
         return 0 ;;
       *) die "unknown setup option: $1" ;;

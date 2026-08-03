@@ -91,6 +91,7 @@ canopy watch install                   # optional (macOS): auto-closes tasks on 
 
 - `stable` -> `main`
 - `codex-preview` -> `rhyu/experimental-codex-package`
+- `herdr-preview` -> `rhyu/experimental-herdr-tabs`
 
 Install does **not** mutate your dev checkout. It clones a managed source under `~/.local/share/canopy/source`, checks out the branch for the chosen channel there, and installs from that managed clone. The installed `canopy` is decoupled from your dev checkout, so switching branches in the repo won't break it. **To update, just run `canopy upgrade` from anywhere** — it refreshes the recorded channel branch and reinstalls the same channel.
 
@@ -105,6 +106,8 @@ canopy start --codex                   # opens Codex AS the orchestrator
 
 `canopy start --codex` keeps the same Canopy loop, but it does **not** replace the live steerable Claude worker panes you use for hands-on implementation. That stays the default worker path. Codex support is additive on the headless surfaces: repo-local hooks under `.codex/hooks.json`, detached `canopy worker spawn --agent codex`, detached `canopy worker fix --agent codex`, and `canopy review --agent codex`.
 
+Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. The detached `worker spawn` path remains available for both Claude and Codex.
+
 **Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
 id=$(canopy task add "add a /health endpoint")
@@ -115,6 +118,12 @@ canopy worker spawn "$id"              # detached Claude worker: implement -> do
 canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + resumable session id)
                                        # (via `canopy start`, workers are steerable in-session
                                        #  Claude panes instead; `worker spawn` is the detached path)
+canopy worker start --agent claude --workspace <id> "$id" # Herdr tab worker (existing workspace)
+canopy worker attach "$id"              # attach to its Herdr tab
+canopy worker send "$id" "status?"       # send text to its agent
+canopy worker status "$id"               # show Herdr agent status
+canopy worker resume "$id"              # reuse the persisted Herdr tab
+canopy worker close "$id"               # requires ready_for_review + passing checks
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
 canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
