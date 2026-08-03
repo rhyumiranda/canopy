@@ -50,3 +50,15 @@ write_atomic() {
 
 # --- json guard: jq_ok <file> -> non-zero if not valid json ---
 jq_ok() { jq -e . "$1" >/dev/null 2>&1; }
+
+# --- base branch: the branch worktrees are cut from, and PRs/reviews target ---
+# A repo whose integration branch is NOT the default (e.g. `develop`, while
+# `main` is stale) sets it once with `canopy base develop`. The configured
+# `.base` in state.json wins; otherwise fall back to auto-detection
+# (`_default_branch`, defined in review.sh — resolved at call time).
+base_branch() {
+  local wt="${1:-.}" b
+  b="$(jq -r '.base // empty' "$(state_file)" 2>/dev/null)" || b=""
+  [ -n "$b" ] && { printf '%s\n' "$b"; return 0; }
+  _default_branch "$wt"
+}

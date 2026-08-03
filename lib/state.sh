@@ -9,7 +9,14 @@
 # --- init -------------------------------------------------------------------
 canopy_init() {
   need git; need jq
-  local root cdir sf
+  local root cdir sf base=""
+  # optional: canopy init [--base <branch>]  — set the integration branch now
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --base) base="${2:?--base needs a branch name}"; shift 2 ;;
+      *) die "unknown init arg: $1 (usage: canopy init [--base <branch>])" ;;
+    esac
+  done
   root="$(repo_root)"
   cdir="$root/.canopy"
   sf="$cdir/state.json"
@@ -23,6 +30,8 @@ canopy_init() {
       | jq --arg now "$(_c_ts)" '.updated=$now' | write_atomic "$sf"
     info "created $sf"
   fi
+
+  [ -n "$base" ] && state_base "$base"
 
   [ -f "$cdir/brief.md" ] || printf '# Brief\n\n(intent goes here)\n' > "$cdir/brief.md"
 
@@ -143,4 +152,21 @@ state_mode() {
   case "$1" in yolo|guided) ;; *) die "mode must be yolo or guided" ;; esac
   jq --arg m "$1" --arg now "$(_c_ts)" '.mode=$m|.updated=$now' "$sf" | write_atomic "$sf"
   info "mode set to $1"
+}
+
+# state_base [branch]
+# No arg: print the EFFECTIVE base (configured, else auto-detected).
+# With arg: set the integration branch every worktree is cut from and every
+# PR/review targets — for repos whose real base isn't the default (e.g. develop).
+state_base() {
+  require_canopy; need jq
+  local sf root; sf="$(state_file)"; root="$(repo_root)"
+  if [ $# -eq 0 ]; then base_branch "$root"; return 0; fi
+  local br="$1"
+  if ! git -C "$root" show-ref --verify --quiet "refs/heads/$br" \
+     && ! git -C "$root" show-ref --verify --quiet "refs/remotes/origin/$br"; then
+    warn "base '$br' not found locally or on origin — set anyway; it'll be fetched when a worktree is leased"
+  fi
+  jq --arg b "$br" --arg now "$(_c_ts)" '.base=$b|.updated=$now' "$sf" | write_atomic "$sf"
+  info "base branch set to $br (worktrees cut from it; PRs target it)"
 }

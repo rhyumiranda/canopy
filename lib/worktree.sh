@@ -16,8 +16,22 @@ canopy_worktree_lease() {
     || die "treehouse lease failed"
   [ -d "$path" ] || die "treehouse returned a bad path: $path"
 
-  # leased worktree starts at detached HEAD; put it on a feature branch
-  git -C "$path" checkout -q -B "$branch" || die "could not create branch $branch in $path"
+  # Cut the feature branch from a FRESH copy of the base branch (configured via
+  # `canopy base`, else the detected default). The leased worktree starts at the
+  # pool's HEAD, which can be stale — anchoring to origin/<base> is what fixes
+  # "cut from an outdated main / wrong branch". Fall back to the local base, then
+  # to the pool HEAD (offline / no remote), so it always produces a branch.
+  local base; base="$(base_branch "$path")"
+  if git -C "$path" fetch -q origin "$base" 2>/dev/null; then
+    git -C "$path" checkout -q -B "$branch" FETCH_HEAD || die "could not create branch $branch from origin/$base"
+    task_log "$id" "branch $branch cut from fresh origin/$base"
+  elif git -C "$path" show-ref --verify --quiet "refs/heads/$base"; then
+    git -C "$path" checkout -q -B "$branch" "$base" || die "could not create branch $branch from $base"
+    task_log "$id" "branch $branch cut from local $base (origin fetch unavailable)"
+  else
+    git -C "$path" checkout -q -B "$branch" || die "could not create branch $branch in $path"
+    task_log "$id" "branch $branch cut from pool HEAD (base '$base' not found)"
+  fi
 
   task_set "$id" worktree "$path" >/dev/null
   task_set "$id" branch "$branch" >/dev/null

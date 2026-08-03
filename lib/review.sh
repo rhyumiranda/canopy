@@ -9,7 +9,9 @@ REVIEWER_MODEL="${CANOPY_REVIEWER_MODEL:-claude-haiku-4-5-20251001}"
 
 _default_branch() {
   local wt="$1" d
-  d="$(git -C "$wt" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@')"
+  # `|| d=""` keeps this set -e safe: with no origin/HEAD the pipe fails, and an
+  # unguarded `d=$(...)` under `set -euo pipefail` would abort the caller.
+  d="$(git -C "$wt" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@')" || d=""
   [ -n "$d" ] && { echo "$d"; return; }
   for b in main master; do
     git -C "$wt" show-ref --verify --quiet "refs/heads/$b" && { echo "$b"; return; }
@@ -71,7 +73,7 @@ _review_prompt() {
 # prompt (headless) and without any ability to edit or run the suite.
 _review_once() {
   local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out
-  base="$(git -C "$wt" merge-base HEAD "$(_default_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
+  base="$(git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
   head="$(git -C "$wt" rev-parse HEAD)"
   if [ -z "$base" ] || [ "$base" = "$head" ]; then
     echo '{"verdict":"clean","risk_level":"low","issues":[],"docs_in_sync":true,"summary":"no diff to review"}'; return
