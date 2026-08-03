@@ -121,13 +121,16 @@ canopy pr open "$id"                   # gh-axi PR — refuses unless review is 
 canopy status                          # the board
 ```
 
-### Skills (slash commands)
+### Skills / commands
 
-| Skill | Usage | What it does |
+| Surface | Usage | What it does |
 |---|---|---|
-| `/yolo` | `/yolo [yolo\|guided]` | Toggle autonomy — **autonomous** (auto-fix, no gate) vs **guided** (default; surfaces real decisions to you). Global. |
-| `/scribe` | `/scribe [fact]` | Record a durable, project-intrinsic lesson to `AGENTS.md` — every agent auto-loads it, so knowledge compounds. |
-| `/hotfix` | `/hotfix "<what broke>"` | Spin a fast isolated worker (fresh worktree, yolo, no review) for an urgent fix. |
+| Claude command | `/yolo [yolo\|guided]` | Toggle autonomy — **autonomous** (auto-fix, no gate) vs **guided** (default; surfaces real decisions to you). Global. |
+| Claude command | `/scribe [fact]` | Record a durable, project-intrinsic lesson to `AGENTS.md` — every agent auto-loads it, so knowledge compounds. |
+| Claude command | `/hotfix "<what broke>"` | Spin a fast isolated worker (fresh worktree, yolo, no review) for an urgent fix. |
+| Codex skill | `$yolo` / `$guided` | Switch Canopy autonomy mode from Codex. Installed by `canopy setup`. |
+| Codex skill | `$scribe` | Record a durable project fact from Codex. Installed by `canopy setup`. |
+| Codex skill | `$hotfix` | Start the urgent Canopy hotfix path from Codex. Installed by `canopy setup`. |
 
 Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
 
@@ -135,7 +138,7 @@ Full CLI: `init · start · status · task · mode · base · worktree · worker
 
 **Integrating on a non-default branch?** If your repo merges into `develop` (not `main`), set it once — `canopy base develop` (or `canopy init --base develop`). Every worktree is then cut from a *fresh* copy of that branch and every PR targets it, so work never anchors to a stale `main`. `canopy base` prints the current one.
 
-**How it works:** the *behavior* lives in `agents/` (orchestrator, worker, reviewer) and `commands/` (the skills above); the `lib/` shell scripts are the deterministic glue. It's small — read the code.
+**How it works:** the *behavior* lives in `agents/` (orchestrator, worker, reviewer), `commands/` (Claude commands), and `skills/` (Codex-native skills); the `lib/` shell scripts are the deterministic glue. It's small — read the code.
 
 ## Contributing
 
