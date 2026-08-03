@@ -100,6 +100,17 @@ APP3="$H3/.local/share/canopy"
 [ "$(cat "$APP3/.channel-ref" 2>/dev/null)" = "rhyu/experimental-codex-package" ] && ok "preview channel maps to experimental branch" || bad "preview channel ref not recorded"
 [ "$(ver "$APP3")" = "8.8.8" ] && ok "preview setup installs preview branch version" || bad "preview setup did not install preview branch version"
 
+# --- Herdr preview channel is explicit and isolated ---
+H4="$WORK/home-herdr"; mkdir -p "$H4"
+OUT4="$(HOME="$H4" "$CANOPY" setup --channel herdr-preview 2>&1)"
+case "$OUT4" in
+  *"channel=herdr-preview"*) ok "Herdr preview setup reports its channel" ;;
+  *)                          bad "Herdr preview setup did not report its channel" ;;
+esac
+APP4="$H4/.local/share/canopy"
+[ "$(cat "$APP4/.channel" 2>/dev/null)" = "herdr-preview" ] && ok "Herdr preview channel recorded" || bad "Herdr preview channel not recorded"
+[ "$(cat "$APP4/.channel-ref" 2>/dev/null)" = "rhyu/experimental-herdr-tabs" ] && ok "Herdr preview maps to experimental branch" || bad "Herdr preview branch mapping wrong"
+
 # --- bad channel fails loudly ---
 if HOME="$WORK/home4" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$CANOPY" setup --channel nope >/dev/null 2>&1; then
   bad "unknown channel should fail"
