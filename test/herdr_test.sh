@@ -20,9 +20,9 @@ case "$1 ${2:-}" in
   workspace\ create) exit 99 ;;
   pane\ current)
     [ "${HERDR_NO_CONTEXT:-0}" = 1 ] && exit 1
-    printf '%s\n' '{"pane_id":"current-pane","workspace_id":"ws-existing"}' ;;
+    printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-current","result":{"pane":{"pane_id":"current-pane","workspace_id":"ws-existing"}}}' ;;
   tab\ list) printf '%s\n' '[]' ;;
-  tab\ create) printf '%s\n' '{"tab_id":"tab-'"${HERDR_TAB_N:-1}"'"}' ;;
+  tab\ create) printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-tab","result":{"tab":{"tab_id":"tab-'"${HERDR_TAB_N:-1}"'"}}}' ;;
   tab\ get) exit 0 ;;
   pane\ list) printf '%s\n' '[]' ;;
   pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || exit 0 ;;
@@ -31,9 +31,9 @@ case "$1 ${2:-}" in
       while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
       [ "${1:-}" = "--" ] && shift
       "$@" >/dev/null 2>&1 || exit $?
-      printf '%s\n' '{"pane_id":"pane-codex","agent_session_id":"herdr-codex"}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-codex","result":{"pane":{"pane_id":"pane-codex"},"agent_session_id":"herdr-codex"}}'
     else
-      printf '%s\n' '{"pane_id":"pane-claude","agent_session_id":"herdr-claude"}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-claude","result":{"pane":{"pane_id":"pane-claude"},"agent_session_id":"herdr-claude"}}'
     fi ;;
   agent\ explain) printf '%s\n' '{"state":"working"}' ;;
   *) exit 0 ;;
@@ -62,6 +62,8 @@ eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-
 [ "$(jq -r .herdr_workspace_id "$TF")" = ws-existing ] && ok 'existing workspace id persisted' || bad 'workspace id missing'
 [ "$(jq -r .herdr_tab_id "$TF")" = tab-1 ] && ok 'Claude tab id persisted' || bad 'tab id missing'
 [ "$(jq -r .herdr_pane_id "$TF")" = pane-claude ] && ok 'Claude pane id persisted' || bad 'pane id missing'
+jq -e '.herdr_tab_id | startswith("rpc-") | not' "$TF" >/dev/null && ok 'Claude ignores RPC tab id' || bad 'Claude stored RPC tab id'
+jq -e '.herdr_pane_id | startswith("rpc-") | not' "$TF" >/dev/null && ok 'Claude ignores RPC pane id' || bad 'Claude stored RPC pane id'
 [ "$(grep -c 'workspace create' "$WORK/herdr.log")" = 0 ] && ok 'never creates a workspace' || bad 'workspace was created'
 grep -q 'tab create.*--workspace ws-existing' "$WORK/herdr.log" && ok 'tab reuses existing workspace' || bad 'tab did not use workspace'
 grep -q -- 'agent start claude.*claude --dangerously-skip-permissions' "$WORK/herdr.log" && ok 'Claude adapter launches Claude' || bad 'Claude adapter argv wrong'
@@ -76,6 +78,8 @@ eval "$ENV \"$CANOPY\" task set $ID2 brief 'do codex work' >/dev/null 2>&1"
 eval "$ENV HERDR_TAB_N=2 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID2 >/dev/null 2>&1" && ok 'Codex start creates Herdr tab' || bad 'Codex start failed'
 TF2="$R/.canopy/tasks/$ID2.json"
 [ "$(jq -r .herdr_pane_id "$TF2")" = pane-codex ] && ok 'Codex pane id persisted' || bad 'Codex pane id missing'
+jq -e '.herdr_tab_id | startswith("rpc-") | not' "$TF2" >/dev/null && ok 'Codex ignores RPC tab id' || bad 'Codex stored RPC tab id'
+jq -e '.herdr_pane_id | startswith("rpc-") | not' "$TF2" >/dev/null && ok 'Codex ignores RPC pane id' || bad 'Codex stored RPC pane id'
 grep -q -- 'agent start codex.*codex .* exec --json' "$WORK/herdr.log" && ok 'Codex adapter launches Codex' || bad 'Codex adapter argv wrong'
 CODEX_START_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_START_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr start has one bypass flag' || bad 'Codex Herdr start bypass count wrong'
