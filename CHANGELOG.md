@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/rhyumiranda/canopy/compare/v0.8.0...v0.8.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **cleanup:** stop workers after merged PRs ([043cc5d](https://github.com/rhyumiranda/canopy/commit/043cc5d2ab27961fce4eb480a030aa5dfec59320))
+
 ## [0.8.0](https://github.com/rhyumiranda/canopy/compare/v0.7.1...v0.8.0) (2026-08-03)
 
 
