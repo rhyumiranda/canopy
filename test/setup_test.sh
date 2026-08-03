@@ -24,9 +24,11 @@ git -C "$S" commit -qam "stable version"
 git -C "$S" checkout -q -B rhyu/experimental-codex-package
 sed -i.bak 's/CANOPY_VERSION="[^"]*"/CANOPY_VERSION="8.8.8"/' "$S/lib/common.sh"; rm -f "$S/lib/common.sh.bak"
 git -C "$S" commit -qam "preview version"
+git -C "$S" checkout -q -B rhyu/experimental-herdr-tabs main
+git -C "$S" checkout -q main
 ORIGIN="$WORK/origin.git"; git clone -q --bare "$S" "$ORIGIN"
 git -C "$S" remote set-url origin "$ORIGIN"
-git -C "$S" push -q -u origin main rhyu/experimental-codex-package 2>/dev/null
+git -C "$S" push -q -u origin main rhyu/experimental-codex-package rhyu/experimental-herdr-tabs 2>/dev/null
 git -C "$S" checkout -q main
 CANOPY="$S/bin/canopy"
 
@@ -102,7 +104,7 @@ APP3="$H3/.local/share/canopy"
 
 # --- Herdr preview channel is explicit and isolated ---
 H4="$WORK/home-herdr"; mkdir -p "$H4"
-OUT4="$(HOME="$H4" "$CANOPY" setup --channel herdr-preview 2>&1)"
+OUT4="$(HOME="$H4" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$CANOPY" setup --channel herdr-preview 2>&1)"
 case "$OUT4" in
   *"channel=herdr-preview"*) ok "Herdr preview setup reports its channel" ;;
   *)                          bad "Herdr preview setup did not report its channel" ;;
