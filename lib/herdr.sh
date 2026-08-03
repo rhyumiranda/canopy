@@ -183,20 +183,27 @@ canopy_worker_status() {
 }
 
 canopy_worker_stop() {
-  local ref="${1:?worker id or session}" tf pane
+  local ref="${1:?worker id or session}" tf pane tab
   tf="$(task_file "$ref" 2>/dev/null || true)"
   if [ -f "$tf" ] && pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)" && [ -n "$pane" ]; then
     _herdr_need
-    "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
-    _herdr_report "$ref" idle "interactive worker stopped"
-    task_log "$ref" "stopped Herdr worker pane $pane"
+    if [ "${CANOPY_WORKER_CLEANUP:-0}" = 1 ]; then
+      tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+      "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || true
+      [ -n "$tab" ] && "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1 || true
+      task_log "$ref" "cleaned up Herdr worker pane $pane and tab ${tab:-<none>}"
+    else
+      "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
+      _herdr_report "$ref" idle "interactive worker stopped"
+      task_log "$ref" "stopped Herdr worker pane $pane"
+    fi
     return 0
   fi
   _canopy_worker_stop_headless "$@"
 }
 
 _canopy_worker_stop_headless() {
-  local ref="$1" sid="$ref" id="" agent="" pid=""
+  local ref="$1" sid="" id="" agent="" pid=""
   require_canopy; need jq
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then id="$ref"; else id="$(_find_task_by_worker_session "$ref" || true)"; fi
   if [ -n "$id" ]; then

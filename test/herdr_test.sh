@@ -57,6 +57,9 @@ TF2="$R/.canopy/tasks/$ID2.json"
 [ "$(jq -r .herdr_pane_id "$TF2")" = pane-codex ] && ok 'Codex pane id persisted' || bad 'Codex pane id missing'
 grep -q -- 'agent start codex.*codex .* exec --json' "$WORK/herdr.log" && ok 'Codex adapter launches Codex' || bad 'Codex adapter argv wrong'
 grep -q -- 'tab create.*--label t2 · Codex' "$WORK/herdr.log" && ok 'Codex tab label includes backend' || bad 'Codex tab label wrong'
+eval "$ENV CANOPY_WORKER_CLEANUP=1 \"$CANOPY\" worker stop $ID2 >/dev/null 2>&1" && ok 'merge cleanup stops Codex worker' || bad 'merge cleanup failed'
+grep -q -- 'pane close pane-codex' "$WORK/herdr.log" && ok 'merge cleanup closes Herdr pane' || bad 'Herdr pane left open'
+grep -q -- 'tab close tab-2' "$WORK/herdr.log" && ok 'merge cleanup closes Herdr tab' || bad 'Herdr tab left open'
 if eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1"; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'
