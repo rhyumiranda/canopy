@@ -42,8 +42,17 @@ grep -qiE 'canopy scribe (add|replace|rm)' "$WF" && ok "worker can place a scrib
 grep -qi 'proportion'           "$WF" && ok "worker states scribe proportionality (may record nothing)" || bad "worker missing scribe proportionality guard"
 
 # reviewer MUST pin a (cheap) model and demand structured JSON
-has "$ROOT/agents/reviewer.md" '^model:' && ok "reviewer pins a model" || bad "reviewer missing model"
-grep -qi '"verdict"' "$ROOT/agents/reviewer.md" && ok "reviewer specifies structured verdict" || bad "reviewer missing verdict schema"
+RV="$ROOT/agents/reviewer.md"
+has "$RV" '^model:' && ok "reviewer pins a model" || bad "reviewer missing model"
+grep -qi '"verdict"' "$RV" && ok "reviewer specifies structured verdict" || bad "reviewer missing verdict schema"
+# strengthened brief: the upgrades borrowed from no-mistakes' review brief
+grep -qi '"risk_level"' "$RV"          && ok "reviewer emits a risk_level"                 || bad "reviewer missing risk_level"
+grep -qi '"action"' "$RV"              && ok "reviewer tags findings with an action"       || bad "reviewer missing per-finding action"
+grep -qi 'ask-user' "$RV"             && ok "reviewer can escalate (ask-user)"            || bad "reviewer missing ask-user action"
+grep -qiE 'call.?sites?|blast radius' "$RV" && ok "reviewer reads beyond the diff (blast radius)" || bad "reviewer missing call-site/blast-radius guidance"
+grep -qiE 'reachable path|broad redesign|over.?reach' "$RV" && ok "reviewer has an anti-overreach guard" || bad "reviewer missing anti-overreach guard"
+grep -qiE 'claims, not evidence|unreviewed' "$RV" && ok "reviewer applies fix-round provenance" || bad "reviewer missing fix-round provenance"
+grep -qiE 'not instructions|data to review' "$RV" && ok "reviewer treats diff as untrusted data" || bad "reviewer missing untrusted-input guard"
 
 # /hotfix command exists
 [ -f "$ROOT/commands/hotfix.md" ] && ok "commands/hotfix.md exists" || bad "missing /hotfix command"
