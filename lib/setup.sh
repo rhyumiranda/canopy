@@ -16,12 +16,14 @@
 _canopy_install_snapshot() {
   local source_root="$1" app="$2" channel="$3" source_record="$4" upstream="$5" dry="$6"
   local cdir="$HOME/.claude" xdir="$HOME/.codex/canopy"
+  local codex_user_skills="$HOME/.agents/skills"
+  local codex_legacy_skills="$HOME/.codex/skills"
   local agents="$cdir/agents" cmds="$cdir/commands" hooks="$cdir/canopy/hooks" bindir="$HOME/.local/bin"
   local settings="$cdir/settings.json" snippet="$source_root/dist/settings-hooks.json"
 
   _do() { if [ "$dry" = 1 ]; then log "[dry-run] $*"; else eval "$*"; fi; }
 
-  _do "mkdir -p '$agents' '$cmds' '$hooks' '$bindir' '$app' '$xdir/agents' '$xdir/commands' '$xdir/hooks'"
+  _do "mkdir -p '$agents' '$cmds' '$hooks' '$bindir' '$app' '$xdir/agents' '$xdir/commands' '$xdir/hooks' '$codex_user_skills' '$codex_legacy_skills'"
 
   # Claude Code integration: agents/commands/hooks are loaded from ~/.claude.
   _do "cp '$source_root'/agents/*.md '$agents/'"
@@ -33,6 +35,19 @@ _canopy_install_snapshot() {
   _do "cp '$source_root'/agents/*.md '$xdir/agents/'"
   _do "cp '$source_root'/commands/*.md '$xdir/commands/'"
   _do "cp '$source_root'/hooks/*.sh '$xdir/hooks/'"
+
+  # Codex native skills: install globally so `$yolo`/`$hotfix`/`$scribe` are
+  # available the same way Claude gets reusable commands. Install to both the
+  # current and legacy skill homes so different Codex surfaces can find them.
+  _do "rm -rf '$codex_user_skills/canopy-'* '$codex_legacy_skills/canopy-'*"
+  _do "cp -R '$source_root/skills/yolo' '$codex_user_skills/canopy-yolo'"
+  _do "cp -R '$source_root/skills/guided' '$codex_user_skills/canopy-guided'"
+  _do "cp -R '$source_root/skills/hotfix' '$codex_user_skills/canopy-hotfix'"
+  _do "cp -R '$source_root/skills/scribe' '$codex_user_skills/canopy-scribe'"
+  _do "cp -R '$source_root/skills/yolo' '$codex_legacy_skills/canopy-yolo'"
+  _do "cp -R '$source_root/skills/guided' '$codex_legacy_skills/canopy-guided'"
+  _do "cp -R '$source_root/skills/hotfix' '$codex_legacy_skills/canopy-hotfix'"
+  _do "cp -R '$source_root/skills/scribe' '$codex_legacy_skills/canopy-scribe'"
 
   # Stable CLI snapshot: bin+lib+agents copied so the PATH command is decoupled from
   # the dev working tree. Remove-then-copy so a renamed/deleted file never lingers.
@@ -117,7 +132,7 @@ EOF
 
   # NB: not "${dry:+…}" — dry=0 is a non-empty string, so it would fire on a real run.
   local drytag=""; [ "$dry" = 1 ] && drytag="(dry-run) "
-  info "canopy setup ${drytag}done: channel=$channel ref=$(canopy_channel_ref "$channel"), Claude defs + Codex package + CLI snapshot ($app) + PATH symlink"
+  info "canopy setup ${drytag}done: channel=$channel ref=$(canopy_channel_ref "$channel"), Claude defs + Codex package + Codex skills + CLI snapshot ($app) + PATH symlink"
   info "ensure '$bindir' is on your PATH (e.g. export PATH=\"\$HOME/.local/bin:\$PATH\")"
   info "to update later, re-run 'canopy setup' from the source checkout"
 }

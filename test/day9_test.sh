@@ -39,8 +39,21 @@ else
 fi
 
 # --- canopy setup against a FAKE HOME (real ~/.claude untouched) ---
+S="$WORK/setup-src"; git clone -q "$ROOT" "$S"; S="$(cd "$S" && pwd -P)"
+tar -C "$ROOT" --exclude .git -cf - . | tar -C "$S" -xf -
+git -C "$S" config user.email t@t; git -C "$S" config user.name t
+git -C "$S" add -A
+if ! git -C "$S" diff --cached --quiet; then
+  git -C "$S" commit -qm "overlay current tree"
+fi
+git -C "$S" checkout -q -B main
+ORIGIN="$WORK/setup-origin.git"; git clone -q --bare "$S" "$ORIGIN"
+git -C "$S" remote set-url origin "$ORIGIN"
+git -C "$S" push -q -u origin main 2>/dev/null
+CANOPY_SETUP="$S/bin/canopy"
+
 FAKE="$WORK/home"; mkdir -p "$FAKE"
-HOME="$FAKE" "$CANOPY" setup >/dev/null 2>&1
+HOME="$FAKE" "$CANOPY_SETUP" setup >/dev/null 2>&1
 [ -f "$FAKE/.claude/agents/orchestrator.md" ] && ok "setup copies agents" || bad "setup missing agents"
 [ -f "$FAKE/.claude/commands/yolo.md" ] && ok "setup copies commands" || bad "setup missing commands"
 [ -f "$FAKE/.claude/canopy/hooks/session-start-digest.sh" ] && ok "setup copies hooks" || bad "setup missing hooks"
@@ -49,7 +62,7 @@ HOME="$FAKE" "$CANOPY" setup >/dev/null 2>&1
 HOME="$FAKE" jq -e '.hooks.SessionStart' "$FAKE/.claude/settings.json" >/dev/null 2>&1 && ok "setup writes hooks to settings.json" || bad "setup settings missing hooks"
 # setup must NOT clobber an existing settings.json
 echo '{"model":"opus","hooks":{"Stop":[]}}' > "$FAKE/.claude/settings.json"
-HOME="$FAKE" "$CANOPY" setup >/dev/null 2>&1
+HOME="$FAKE" "$CANOPY_SETUP" setup >/dev/null 2>&1
 HOME="$FAKE" jq -e '.model=="opus"' "$FAKE/.claude/settings.json" >/dev/null 2>&1 && ok "setup preserves existing settings.json" || bad "setup clobbered settings"
 [ -f "$FAKE/.claude/canopy/settings-hooks.json" ] && ok "setup drops snippet for manual merge when settings exist" || bad "setup missing snippet"
 
