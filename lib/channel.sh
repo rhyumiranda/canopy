@@ -5,7 +5,8 @@ canopy_channel_ref() {
   case "${1:-}" in
     stable) printf '%s\n' "main" ;;
     codex-preview) printf '%s\n' "rhyu/experimental-codex-package" ;;
-    *) die "unknown setup channel: ${1:-<none>} (use stable or codex-preview)" ;;
+    herdr-preview) printf '%s\n' "rhyu/experimental-herdr-tabs" ;;
+    *) die "unknown setup channel: ${1:-<none>} (use stable, codex-preview, or herdr-preview)" ;;
   esac
 }
 

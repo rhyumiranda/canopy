@@ -91,6 +91,7 @@ canopy watch install                   # optional (macOS): auto-closes tasks on 
 
 - `stable` -> `main`
 - `codex-preview` -> `rhyu/experimental-codex-package`
+- `herdr-preview` -> `rhyu/experimental-herdr-tabs`
 
 Install does **not** mutate your dev checkout. It clones a managed source under `~/.local/share/canopy/source`, checks out the branch for the chosen channel there, and installs from that managed clone. The installed `canopy` is decoupled from your dev checkout, so switching branches in the repo won't break it. **To update, just run `canopy upgrade` from anywhere** — it refreshes the recorded channel branch and reinstalls the same channel.
 
