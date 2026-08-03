@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/rhyumiranda/canopy/compare/v0.7.1...v0.8.0) (2026-08-03)
+
+
+### Features
+
+* **worker:** add Herdr terminal worker workflow ([568e6d8](https://github.com/rhyumiranda/canopy/commit/568e6d829f8ba1bd704146f53194a191f40e38e2))
+
 ## [0.7.1](https://github.com/rhyumiranda/canopy/compare/v0.7.0...v0.7.1) (2026-08-03)
 
 
