@@ -42,7 +42,7 @@ canopy_recover() {
     ckpt="$(jq -r '.checkpoint.note // "(none yet)"' "$tf")"
     committed="  (nothing committed yet)"
     if [ -n "$wt" ] && [ -d "$wt" ]; then
-      base="$(git -C "$wt" merge-base HEAD "$(_default_branch "$wt")" 2>/dev/null || echo '')"
+      base="$(git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null || echo '')"
       if [ -n "$base" ]; then
         local log; log="$(git -C "$wt" log --oneline "$base"..HEAD 2>/dev/null)"
         [ -n "$log" ] && committed="$log"
