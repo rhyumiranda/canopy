@@ -11,7 +11,10 @@ mkdir -p "$WORK/bin"
 cat > "$WORK/bin/herdr" <<'EOF'
 #!/usr/bin/env bash
 set -u
-printf '%s\n' "$*" >> "${HERDR_LOG:?}"
+for arg in "$@"; do
+  printf '%s ' "$(printf '%s' "$arg" | tr '\n' ' ')" >> "${HERDR_LOG:?}"
+done
+printf '\n' >> "${HERDR_LOG:?}"
 case "$1 ${2:-}" in
   workspace\ get) [ "${3:-}" = ws-existing ] ;;
   workspace\ create) exit 99 ;;
@@ -24,16 +27,32 @@ case "$1 ${2:-}" in
   pane\ list) printf '%s\n' '[]' ;;
   pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || exit 0 ;;
   agent\ start)
-    case "$*" in *codex*) printf '%s\n' '{"pane_id":"pane-codex","agent_session_id":"herdr-codex"}' ;; *) printf '%s\n' '{"pane_id":"pane-claude","agent_session_id":"herdr-claude"}' ;; esac ;;
+    if [ "${3:-}" = codex ]; then
+      while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+      [ "${1:-}" = "--" ] && shift
+      "$@" >/dev/null 2>&1 || exit $?
+      printf '%s\n' '{"pane_id":"pane-codex","agent_session_id":"herdr-codex"}'
+    else
+      printf '%s\n' '{"pane_id":"pane-claude","agent_session_id":"herdr-claude"}'
+    fi ;;
   agent\ explain) printf '%s\n' '{"state":"working"}' ;;
   *) exit 0 ;;
 esac
 EOF
 chmod +x "$WORK/bin/herdr"
+cat > "$WORK/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >> "${CODEX_ARGV_LOG:?}"
+cat >> "${CODEX_STDIN_LOG:?}"
+printf '\n' >> "${CODEX_STDIN_LOG:?}"
+printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread"}'
+EOF
+chmod +x "$WORK/bin/codex"
 
 R="$WORK/repo"; mkdir -p "$R"; (cd "$R" && git init -q && git config user.email t@t && git config user.name t && echo hi > f && git add f && git commit -qm init)
 cd "$R"
-ENV="HERDR_LOG=$WORK/herdr.log PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+ENV="HERDR_LOG=$WORK/herdr.log CODEX_ARGV_LOG=$WORK/codex.argv CODEX_STDIN_LOG=$WORK/codex.stdin PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
 eval "$ENV \"$CANOPY\" init >/dev/null 2>&1"
 ID="$(eval "$ENV \"$CANOPY\" task add 'interactive worker' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID brief 'do the work' >/dev/null 2>&1"
@@ -53,6 +72,7 @@ eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-
 
 ID2="$(eval "$ENV \"$CANOPY\" task add 'codex worker' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID2 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID2 brief 'do codex work' >/dev/null 2>&1"
 eval "$ENV HERDR_TAB_N=2 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID2 >/dev/null 2>&1" && ok 'Codex start creates Herdr tab' || bad 'Codex start failed'
 TF2="$R/.canopy/tasks/$ID2.json"
 [ "$(jq -r .herdr_pane_id "$TF2")" = pane-codex ] && ok 'Codex pane id persisted' || bad 'Codex pane id missing'
@@ -60,11 +80,18 @@ grep -q -- 'agent start codex.*codex .* exec --json' "$WORK/herdr.log" && ok 'Co
 CODEX_START_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_START_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr start has one bypass flag' || bad 'Codex Herdr start bypass count wrong'
 printf '%s\n' "$CODEX_START_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr start should not pass approval flag' || ok 'Codex Herdr start omits approval flag'
+grep -q 'Task t2: codex worker' "$WORK/codex.stdin" && ok 'Codex Herdr start stdin has task title' || bad 'Codex Herdr start stdin missing title'
+grep -q 'do codex work' "$WORK/codex.stdin" && ok 'Codex Herdr start stdin has brief' || bad 'Codex Herdr start stdin missing brief'
 grep -q -- 'tab create.*--label t2 · Codex' "$WORK/herdr.log" && ok 'Codex tab label includes backend' || bad 'Codex tab label wrong'
+eval "$ENV \"$CANOPY\" task checkpoint $ID2 'route added, tests next' >/dev/null 2>&1"
+: > "$WORK/codex.stdin"
 eval "$ENV HERDR_PANE_GET_FAIL=pane-codex \"$CANOPY\" worker resume --workspace ws-existing $ID2 >/dev/null 2>&1" && ok 'Codex Herdr resume relaunches stale pane' || bad 'Codex Herdr resume failed'
 CODEX_RESUME_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_RESUME_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr resume has one bypass flag' || bad 'Codex Herdr resume bypass count wrong'
 printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr resume should not pass approval flag' || ok 'Codex Herdr resume omits approval flag'
+grep -q 'Task t2: codex worker' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has task title' || bad 'Codex Herdr resume stdin missing title'
+grep -q 'do codex work' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has brief' || bad 'Codex Herdr resume stdin missing brief'
+grep -q 'route added, tests next' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has checkpoint' || bad 'Codex Herdr resume stdin missing checkpoint'
 if eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1"; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'

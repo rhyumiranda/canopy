@@ -85,7 +85,8 @@ _herdr_launch_codex() {
   codex_args=(-s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -C "$path")
   _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
   "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
-    codex "${codex_args[@]}" exec --json -
+    bash -c 'prompt="$1"; shift; printf "%s" "$prompt" | exec codex "$@" exec --json -' \
+    canopy-codex "$prompt" "${codex_args[@]}"
 }
 
 _herdr_launch() {
@@ -99,7 +100,7 @@ _herdr_launch() {
 
 _herdr_start() {
   require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief ws tab pane sid out label alabel
+  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief checkpoint ws tab pane sid out label alabel
   _assert_task "$id"; agent="$(_canopy_agent_validate "$agent")"; tf="$(task_file "$id")"
   path="$(jq -r '.worktree // empty' "$tf")"
   [ -d "$path" ] || die "task $id has no leased worktree"
@@ -125,6 +126,15 @@ _herdr_start() {
     printf '%s\n' "$pane"; return 0
   fi
   prompt="$(_worker_prompt "$id" "$title" "$brief")"
+  checkpoint="$(jq -r '.checkpoint.note // empty' "$tf" 2>/dev/null || true)"
+  if [ "$agent" = codex ] && [ -n "$checkpoint" ]; then
+    prompt="$prompt
+
+Last checkpoint:
+${checkpoint}
+
+Continue from the checkpoint; do not restart."
+  fi
   out="$(_herdr_launch "$agent" "$id" "$path" "$tab" "$prompt" 2>&1)" || {
     die "could not start $agent in Herdr"
   }
