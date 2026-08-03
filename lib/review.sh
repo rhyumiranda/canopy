@@ -173,7 +173,8 @@ EOF
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"
   [ -n "$wt" ] || die "task $id not leased"
-  agent="${agent:-$(canopy_task_agent "$id")}"
+  # Keep the independent reviewer on Claude unless the caller opts into Codex.
+  agent="${agent:-claude}"
   task_status "$id" reviewing >/dev/null
 
   # Intent (goal + why) sharpens deliberate-choice-vs-bug judgement.
