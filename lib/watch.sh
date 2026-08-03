@@ -52,6 +52,10 @@ canopy_watch_once() {
       # reconcile continues.
       task_status "$id" merged >/dev/null
       task_status "$id" "done" >/dev/null
+      # Stop any detached/live worker before releasing its worktree. Best effort:
+      # a completed worker may already have exited, and cleanup must not block
+      # reconciliation.
+      ( canopy_worker_stop "$id" ) >/dev/null 2>&1 || warn "watch: worker stop had an issue for $id"
       ( canopy_worktree_return "$id" ) >/dev/null 2>&1 || warn "watch: worktree return had an issue for $id"
     else
       info "watch: PR #$pr still open ($id)"
