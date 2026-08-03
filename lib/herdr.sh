@@ -123,6 +123,53 @@ _herdr_find_pane() {
     | head -1
 }
 
+_herdr_probe_state() {
+  local pane="$1" out state
+  [ -n "$pane" ] || return 1
+  if ! "$(_herdr_bin)" pane get "$pane" >/dev/null 2>&1; then
+    printf '%s\n' interrupted
+    return 0
+  fi
+  out="$($(_herdr_bin) agent explain "$pane" --json 2>/dev/null || true)"
+  state="$(printf '%s\n' "$out" | jq -r '
+    .result.agent.status // .result.agent.state //
+    .result.status // .result.state //
+    .status // .state // .agent.status // .agent.state // empty
+  ' 2>/dev/null | head -1)"
+  case "$state" in
+    done|failed|blocked|interrupted) printf '%s\n' "$state"; return 0 ;;
+    error) printf '%s\n' failed; return 0 ;;
+  esac
+  if "$(_herdr_bin)" wait agent-status "$pane" --status done --timeout 1 >/dev/null 2>&1; then
+    printf '%s\n' done; return 0
+  fi
+  if "$(_herdr_bin)" wait agent-status "$pane" --status blocked --timeout 1 >/dev/null 2>&1; then
+    printf '%s\n' blocked; return 0
+  fi
+  return 1
+}
+
+canopy_herdr_watch_once() {
+  require_canopy; need jq; _herdr_need
+  local ids id tf pane status current
+  ids="$(jq -r --arg re "$CANOPY_ACTIVE_RE" '.tasks[] | select(.status|test($re)) | .id' "$(state_file)")"
+  [ -n "$ids" ] || return 0
+  while read -r id; do
+    [ -n "$id" ] || continue
+    tf="$(task_file "$id")"; [ -f "$tf" ] || continue
+    pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
+    [ -n "$pane" ] || continue
+    status="$(_herdr_probe_state "$pane" || true)"
+    _status_terminal "$status" || continue
+    current="$(jq -r '.status' "$tf")"
+    [ "$current" = "$status" ] || task_set "$id" status "$status" >/dev/null
+    if task_lifecycle_event "$id" "$status" "Herdr worker reported $status" >/dev/null; then
+      _notify "task $id $status"
+      task_log "$id" "Herdr lifecycle event queued: $status"
+    fi
+  done <<< "$ids"
+}
+
 _herdr_report() {
   local id="$1" state="$2" message="${3:-}" tf pane agent sid label
   local -a report_args
