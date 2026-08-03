@@ -37,6 +37,7 @@ _worker_spawn_claude() {
 _worker_spawn_codex() {
   local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" mode="${5:-spawn}" resume_sid="${6:-}"
   local prompt pid sid logdir logf lastf
+  local -a codex_args
   logdir="$(canopy_logs_dir)"
   mkdir -p "$logdir"
   logf="$logdir/${id}.${mode}.$(date +%s).codex.jsonl"
@@ -45,6 +46,8 @@ _worker_spawn_codex() {
   if [ "$mode" = fix ]; then
     prompt="$brief"
   fi
+  codex_args=(-s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -C "$path")
+  _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
 
   if [ -n "$resume_sid" ]; then
     (
@@ -53,7 +56,7 @@ _worker_spawn_codex() {
       child=""
       trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
       (
-        printf '%s' "$prompt" | codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" -C "$path" \
+        printf '%s' "$prompt" | codex "${codex_args[@]}" \
           exec resume --json -o "$lastf" "$resume_sid" -
       ) &
       child="$!"
@@ -66,7 +69,7 @@ _worker_spawn_codex() {
       child=""
       trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
       (
-        printf '%s' "$prompt" | codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" -C "$path" \
+        printf '%s' "$prompt" | codex "${codex_args[@]}" \
           exec --json -o "$lastf" -
       ) &
       child="$!"

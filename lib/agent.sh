@@ -29,6 +29,20 @@ canopy_task_agent() {
 
 canopy_logs_dir() { echo "$(canopy_dir)/logs"; }
 
+_codex_bypass_flag() {
+  printf '%s\n' "${CANOPY_CODEX_BYPASS_FLAG:---dangerously-bypass-approvals-and-sandbox}"
+}
+
+_codex_has_bypass_arg() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --dangerously-bypass-approvals-and-sandbox|--yolo) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 _find_task_by_worker_session() {
   local sid="${1:?session id}"
   [ -f "$(state_file)" ] || return 1
