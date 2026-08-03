@@ -82,7 +82,9 @@ printf '%s\n' \
   'printf "%s\n" "$*" >> "$GH_LOG"' \
   'case "$1 $2" in' \
   '  "label create") exit 0 ;;' \
-  '  "pr create") printf "%s\n" "https://github.com/org/repo/pull/777"; exit 0 ;;' \
+  '  "pr create")' \
+  '    [ "${GH_AXI_PR_CREATE_FAIL:-0}" = 1 ] && { printf "%s\n" "boom from gh-axi"; exit 42; }' \
+  '    printf "%s\n" "https://github.com/org/repo/pull/777"; exit 0 ;;' \
   'esac' \
   'exit 0' > "$FAKEBIN/gh-axi"
 printf '%s\n' \
@@ -121,6 +123,23 @@ PR_RC=$?
 [ "$PR_RC" -eq 0 ] && ok "pr open succeeds after push when tail -1 is unavailable" || { bad "pr open failed after push"; sed 's/^/       /' "$WORK/pr-open.err"; }
 grep -q '^pr create ' "$GH_LOG" && ok "gh-axi pr create runs after push" || bad "gh-axi pr create did not run"
 [ "$(cat "$WORK/pr-open.out")" = 777 ] && ok "pr open prints PR number only" || bad "unexpected pr open stdout: $(cat "$WORK/pr-open.out")"
+
+(
+  cd "$PRR"
+  PRID2="$("$CANOPY" task add "open pr create failure" 2>/dev/null)"
+  git checkout -qb rhyu/pr-create-failure
+  printf 'fail\n' >> f
+  git add -A
+  git commit -qm "fix: surface pr create failure"
+  "$CANOPY" task set "$PRID2" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID2" branch rhyu/pr-create-failure >/dev/null
+  "$CANOPY" task set "$PRID2" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" GH_AXI_PR_CREATE_FAIL=1 CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID2" > "$WORK/pr-fail.out" 2> "$WORK/pr-fail.err"
+)
+PR_FAIL_RC=$?
+[ "$PR_FAIL_RC" -ne 0 ] && ok "pr open fails when gh-axi pr create fails" || bad "pr open should fail on pr create failure"
+grep -q 'boom from gh-axi' "$WORK/pr-fail.err" && ok "pr create stderr includes captured gh-axi error" || bad "missing captured gh-axi error"
+grep -q 'pr create failed' "$WORK/pr-fail.err" && ok "pr create failure message is clear" || bad "missing clear pr create failure"
 
 echo
 echo "== $PASS passed, $FAIL failed =="

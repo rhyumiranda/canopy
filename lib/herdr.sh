@@ -81,7 +81,7 @@ _herdr_launch_claude() {
 
 _herdr_launch_codex() {
   local id="$1" path="$2" tab="$3" prompt="$4"
-  "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
+  printf '%s' "$prompt" | "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
     codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" \
     -C "$path" exec --json -
 }
