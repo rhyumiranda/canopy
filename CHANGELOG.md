@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/rhyumiranda/canopy/compare/v0.5.0...v0.6.0) (2026-08-03)
+
+
+### Features
+
+* **setup:** add stable and codex-preview channels ([be0f602](https://github.com/rhyumiranda/canopy/commit/be0f6027777f7a19c5d8c704f7f27bc1fb4f09d2))
+* **setup:** add stable and codex-preview channels ([7923c5b](https://github.com/rhyumiranda/canopy/commit/7923c5b93879a78f248c6fc57952e05b473930d2))
+
 ## [0.5.0](https://github.com/rhyumiranda/canopy/compare/v0.4.0...v0.5.0) (2026-08-03)
 
 
