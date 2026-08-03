@@ -11,7 +11,7 @@ command -v jq >/dev/null || { echo "jq required"; exit 1; }
 # source just what we need
 CANOPY_ROOT="$CANOPY_ROOT"; export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/common.sh"
-. "$CANOPY_ROOT/lib/worker.sh"   # _agent_body
+. "$CANOPY_ROOT/lib/agent.sh"    # _agent_body
 . "$CANOPY_ROOT/lib/review.sh"
 
 echo "== review pure-helper tests =="

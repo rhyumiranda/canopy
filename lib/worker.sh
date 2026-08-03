@@ -1,8 +1,5 @@
-# worker.sh — spawn/observe claude --bg workers. Sourced, not executed.
+# worker.sh — spawn/observe detached workers. Sourced, not executed.
 # shellcheck shell=bash
-
-# strip a Claude Code agent def's frontmatter -> system-prompt body
-_agent_body() { awk 'p; /^---$/{n++; if(n==2) p=1}' "$CANOPY_ROOT/agents/$1.md"; }
 
 # parse the session id out of `claude --bg` output (strip ANSI, anchor on "backgrounded")
 _parse_bg_id() {
@@ -21,11 +18,87 @@ Follow your worker instructions: implement → document the change in the same d
 EOF
 }
 
+_worker_agent_flag() {
+  local agent="${1:-}"
+  [ -n "$agent" ] && { _canopy_agent_validate "$agent"; return; }
+  canopy_agent_default
+}
+
+_worker_spawn_claude() {
+  local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid
+  sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+            --append-system-prompt "$(_agent_body worker)" \
+            "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
+  [ -n "$sid" ] || die "could not read worker session id from claude --bg"
+  _task_set_worker_runtime "$id" claude "$sid" "" ""
+  printf '%s\n' "$sid"
+}
+
+_worker_spawn_codex() {
+  local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" mode="${5:-spawn}" resume_sid="${6:-}"
+  local prompt pid sid logdir logf lastf
+  logdir="$(canopy_logs_dir)"
+  mkdir -p "$logdir"
+  logf="$logdir/${id}.${mode}.$(date +%s).codex.jsonl"
+  lastf="$logdir/${id}.${mode}.last.txt"
+  prompt="$(_worker_prompt "$id" "$title" "$brief")"
+  if [ "$mode" = fix ]; then
+    prompt="$brief"
+  fi
+
+  if [ -n "$resume_sid" ]; then
+    (
+      set +e
+      cd "$path" || exit 1
+      child=""
+      trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
+      (
+        printf '%s' "$prompt" | codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" -C "$path" \
+          exec resume --json -o "$lastf" "$resume_sid" -
+      ) &
+      child="$!"
+      wait "$child"
+    ) >"$logf" 2>&1 &
+  else
+    (
+      set +e
+      cd "$path" || exit 1
+      child=""
+      trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
+      (
+        printf '%s' "$prompt" | codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" -C "$path" \
+          exec --json -o "$lastf" -
+      ) &
+      child="$!"
+      wait "$child"
+    ) >"$logf" 2>&1 &
+  fi
+  pid="$!"
+  sid="$(_codex_wait_for_thread_id "$logf" "$pid")" || die "could not read worker session id from Codex"
+  _task_set_worker_runtime "$id" codex "$sid" "$pid" "$logf"
+  printf '%s\n' "$sid"
+}
+
 # canopy worker spawn <id> -> prints the worker session id
 canopy_worker_spawn() {
-  require_canopy; need claude; need jq
-  local id="${1:?task id}"; _assert_task "$id"
-  local tf path title brief sid
+  require_canopy; need jq
+  local agent="" id tf path title brief sid
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
+      -h|--help)
+        cat <<'EOF'
+usage: canopy worker spawn [--agent claude|codex] <id>
+EOF
+        return 0 ;;
+      *) id="${1}"; break ;;
+    esac
+    shift
+  done
+  id="${id:-${1:-}}"
+  [ -n "$id" ] || die "usage: canopy worker spawn [--agent claude|codex] <id>"
+  agent="$(_worker_agent_flag "$agent")"
+  _assert_task "$id"
   tf="$(task_file "$id")"
   path="$(jq -r '.worktree // empty' "$tf")"
   [ -n "$path" ] || die "task $id not leased — run 'canopy worktree lease $id' first"
@@ -33,60 +106,118 @@ canopy_worker_spawn() {
   title="$(jq -r '.title' "$tf")"
   brief="$(jq -r '.brief // ""' "$tf")"
 
-  # detached bg worker; cwd = leased worktree; NO -w (ground rule)
-  sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
-            --append-system-prompt "$(_agent_body worker)" \
-            "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
-  [ -n "$sid" ] || die "could not read worker session id from claude --bg"
-
-  task_set "$id" worker_session "$sid" >/dev/null
+  case "$agent" in
+    claude) need claude; sid="$(_worker_spawn_claude "$id" "$path" "$title" "$brief")" ;;
+    codex)  need codex;  sid="$(_worker_spawn_codex "$id" "$path" "$title" "$brief" spawn "")" ;;
+  esac
   task_status "$id" implementing >/dev/null
-  task_log "$id" "spawned worker $sid in $path"
-  info "worker $sid spawned for $id"
+  task_log "$id" "spawned $agent worker $sid in $path"
+  info "$agent worker $sid spawned for $id"
   printf '%s\n' "$sid"
 }
 
 # canopy worker fix <id> <issues-json-or-text>  -> spawns a fresh worker in the same
 # worktree to address review issues, then prints its session id.
 canopy_worker_fix() {
-  require_canopy; need claude; need jq
-  local id="${1:?task id}"; shift; local issues="${*:?issues}"
+  require_canopy; need jq
+  local agent="" id issues
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
+      -h|--help)
+        cat <<'EOF'
+usage: canopy worker fix [--agent claude|codex] <id> <issues>
+EOF
+        return 0 ;;
+      *) id="${1}"; shift; issues="${*:-}"; break ;;
+    esac
+    shift
+  done
+  [ -n "${id:-}" ] || die "usage: canopy worker fix [--agent claude|codex] <id> <issues>"
+  [ -n "${issues:-}" ] || die "usage: canopy worker fix [--agent claude|codex] <id> <issues>"
   _assert_task "$id"
-  local path sid; path="$(jq -r '.worktree // empty' "$(task_file "$id")")"
+  local path sid title resume_sid prompt
+  agent="$(_worker_agent_flag "${agent:-$(canopy_task_agent "$id")}")"
+  path="$(jq -r '.worktree // empty' "$(task_file "$id")")"
   [ -d "$path" ] || die "task $id has no worktree"
-  local prompt
   prompt="The independent review found issues with your change. Fix EXACTLY these, then re-run the deterministic checks and commit again on the current branch. Do not expand scope.
 
 Issues:
 ${issues}"
-  sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
-            --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
-  [ -n "$sid" ] || die "could not read fix-worker session id"
-  task_set "$id" worker_session "$sid" >/dev/null
+  title="$(jq -r '.title' "$(task_file "$id")")"
+  case "$agent" in
+    claude)
+      need claude
+      sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+                --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
+      [ -n "$sid" ] || die "could not read fix-worker session id"
+      _task_set_worker_runtime "$id" claude "$sid" "" ""
+      ;;
+    codex)
+      need codex
+      resume_sid="$(jq -r '.worker_session // empty' "$(task_file "$id")")"
+      sid="$(_worker_spawn_codex "$id" "$path" "$title" "$prompt" fix "$resume_sid")"
+      ;;
+  esac
   task_status "$id" implementing >/dev/null
-  task_log "$id" "spawned fix worker $sid"
-  info "fix worker $sid spawned for $id"
+  task_log "$id" "spawned $agent fix worker $sid"
+  info "$agent fix worker $sid spawned for $id"
   printf '%s\n' "$sid"
 }
 
 # canopy worker logs <id|sid>  (best-effort tail)
 canopy_worker_logs() {
-  need claude
-  local ref="${1:?worker id or session}"
-  local sid="$ref"
+  require_canopy; need jq
+  local ref="${1:?worker id or session}" sid="$ref" id="" agent="" logf=""
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then
-    sid="$(jq -r '.worker_session // empty' "$(task_file "$ref")")"
+    id="$ref"
+  else
+    id="$(_find_task_by_worker_session "$ref" || true)"
+  fi
+  if [ -n "$id" ]; then
+    sid="$(jq -r '.worker_session // empty' "$(task_file "$id")")"
+    agent="$(canopy_task_agent "$id")"
+    logf="$(jq -r '.worker_log // empty' "$(task_file "$id")")"
   fi
   [ -n "$sid" ] || die "no worker session for $ref"
-  claude logs "$sid" 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' | tail -30
+  case "${agent:-claude}" in
+    claude)
+      need claude
+      claude logs "$sid" 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' | tail -30
+      ;;
+    codex)
+      [ -n "$logf" ] && [ -f "$logf" ] || die "no codex log captured for $ref"
+      tail -30 "$logf"
+      ;;
+  esac
 }
 
 # canopy worker stop <id|sid>
 canopy_worker_stop() {
-  need claude
-  local ref="${1:?worker id or session}" sid="$ref"
+  require_canopy; need jq
+  local ref="${1:?worker id or session}" sid="$ref" id="" agent="" pid=""
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then
-    sid="$(jq -r '.worker_session // empty' "$(task_file "$ref")")"
+    id="$ref"
+  else
+    id="$(_find_task_by_worker_session "$ref" || true)"
   fi
-  [ -n "$sid" ] && claude stop "$sid" >/dev/null 2>&1 || true
+  if [ -n "$id" ]; then
+    sid="$(jq -r '.worker_session // empty' "$(task_file "$id")")"
+    pid="$(jq -r '.worker_pid // empty' "$(task_file "$id")")"
+    agent="$(canopy_task_agent "$id")"
+  fi
+  [ -n "$sid" ] || return 0
+  case "${agent:-claude}" in
+    claude)
+      need claude
+      claude stop "$sid" >/dev/null 2>&1 || true
+      ;;
+    codex)
+      if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+        kill "$pid" >/dev/null 2>&1 || true
+        sleep 1
+        kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" >/dev/null 2>&1 || true
+      fi
+      ;;
+  esac
 }

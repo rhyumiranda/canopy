@@ -8,7 +8,7 @@
   <em>Real Claude Code driving the full run: one line of intent → isolated worker → independent review → a gated PR.</em>
 </p>
 
-Canopy is a thin supervisor that sits one level above your coding agents. It holds the plan, runs each task in its own isolated worktree, has a *separate* agent review every change, ships a clean PR, and only interrupts you when a decision genuinely needs a human. You steer everything from one seat.
+Canopy is a thin supervisor that sits one level above your coding agents. It holds the plan, runs each task in its own isolated worktree, has a *separate* agent review every change, ships a clean PR, and only interrupts you when a decision genuinely needs a human. You steer everything from one seat. Claude Code is the stable runtime; Codex support is experimental.
 
 MIT-licensed. Local-first. Built on [`treehouse`](https://github.com/kunchenguid/treehouse), `gh-axi`, and Claude Code.
 
@@ -80,21 +80,30 @@ Not built for: hosted multi-tenant use, or replacing CI (Canopy *uses* your CI a
 ```bash
 git clone https://github.com/rhyumiranda/canopy.git && cd canopy
 ./bin/canopy setup                     # agents/commands/hooks -> ~/.claude; a CLI snapshot -> ~/.local/share/canopy; canopy -> PATH
+./bin/canopy setup --channel codex-preview
 export PATH="$HOME/.local/bin:$PATH"   # if it isn't already
 canopy watch install                   # optional (macOS): auto-closes tasks on merge.
                                        # writes a launchd plist; run the printed launchctl command to load it.
                                        # (Linux: schedule `canopy watch once` via cron instead.)
 ```
 
-`setup` installs a **stable snapshot** of the CLI, so the installed `canopy` is decoupled from your dev checkout — switching branches in the repo won't break it. **To update, just run `canopy upgrade` from anywhere** — it pulls the checkout to latest `main` and reinstalls the snapshot (no need to `cd` back to the repo).
+`setup` installs a snapshot of the chosen channel and records that channel locally. Supported channels:
+
+- `stable` -> `main`
+- `codex-preview` -> `rhyu/experimental-codex-package`
+
+Install does **not** mutate your dev checkout. It clones a managed source under `~/.local/share/canopy/source`, checks out the branch for the chosen channel there, and installs from that managed clone. The installed `canopy` is decoupled from your dev checkout, so switching branches in the repo won't break it. **To update, just run `canopy upgrade` from anywhere** — it refreshes the recorded channel branch and reinstalls the same channel.
 
 **Per project:**
 ```bash
 cd your-repo && canopy init            # creates .canopy/, ensures treehouse
 canopy start                           # opens Claude Code AS the orchestrator
+canopy start --codex                   # opens Codex AS the orchestrator
 ```
 
 `canopy start` is the whole point: it launches Claude Code with the orchestrator playbook loaded, reads `.canopy/`, recovers any in-flight work, and then just waits for your intent — you tell it what you want, it drives the rest. (`canopy init` alone only makes the repo ready; `start` is what makes Claude know what to do.)
+
+`canopy start --codex` keeps the same Canopy loop, but it does **not** replace the live steerable Claude worker panes you use for hands-on implementation. That stays the default worker path. Codex support is additive on the headless surfaces: repo-local hooks under `.codex/hooks.json`, detached `canopy worker spawn --agent codex`, detached `canopy worker fix --agent codex`, and `canopy review --agent codex`.
 
 **Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
@@ -102,10 +111,12 @@ id=$(canopy task add "add a /health endpoint")
 canopy task set "$id" brief "adds GET /health returning 200"   # the What
 canopy task set "$id" why   "the load balancer needs a liveness probe"
 canopy worktree lease "$id"            # isolated worktree + feature branch
-canopy worker spawn "$id"              # worker: implement -> document -> checks -> commit
+canopy worker spawn "$id"              # detached Claude worker: implement -> document -> checks -> commit
+canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + resumable session id)
                                        # (via `canopy start`, workers are steerable in-session
-                                       #  panes instead; `worker spawn` is the detached path)
-canopy review "$id"                    # one independent diff review (cheap model)
+                                       #  Claude panes instead; `worker spawn` is the detached path)
+canopy review "$id"                    # one independent diff review (Claude default)
+canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
 canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
 canopy status                          # the board
 ```

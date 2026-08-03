@@ -21,6 +21,10 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/common.sh"
 # shellcheck source=../lib/state.sh
 . "$CANOPY_ROOT/lib/state.sh"
+# shellcheck source=../lib/agent.sh
+. "$CANOPY_ROOT/lib/agent.sh"
+# shellcheck source=../lib/channel.sh
+. "$CANOPY_ROOT/lib/channel.sh"
 # shellcheck source=../lib/worktree.sh
 . "$CANOPY_ROOT/lib/worktree.sh"
 # shellcheck source=../lib/worker.sh
@@ -52,7 +56,7 @@ usage: canopy <command> [args]
 
 commands:
   init                 Initialize .canopy/ in the current repo (idempotent)
-  start                Open Claude Code AS the orchestrator (loads the playbook, recovers)
+  start                Open an agent AS the orchestrator (Claude default; --codex experimental)
   status               Print the task board
   task add <title>     Add a task (prints its id)
   task set <id> <k> <v>  Set a field on a task

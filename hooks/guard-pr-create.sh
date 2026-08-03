@@ -11,7 +11,7 @@ set -euo pipefail
 command -v jq >/dev/null 2>&1 || exit 0
 
 input="$(cat)"
-cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
+cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // .tool_input.cmd // .input.command // .command // empty' 2>/dev/null || true)"
 [ -n "$cmd" ] || exit 0
 
 # Match `gh pr create` / `gh-axi pr create` (any spacing), not `canopy pr open`.
