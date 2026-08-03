@@ -44,14 +44,18 @@ printf '%s' "$OUT" | grep -qi 'TCC' && ok "status flags the TCC/Full-Disk-Access
 # --- Layer 1: 'canopy recover' reconciles a merged PR in-session (stub gh-axi) ---
 STUB="$WORK/bin"; mkdir -p "$STUB"
 printf '#!/usr/bin/env bash\necho "state:  MERGED"\n' > "$STUB/gh-axi"; chmod +x "$STUB/gh-axi"
+printf '#!/usr/bin/env bash\necho stopped > "$CANOPY_STOP_MARKER"\n' > "$STUB/claude"; chmod +x "$STUB/claude"
 R2="$(new_repo)"; cd "$R2"; "$CANOPY" init >/dev/null 2>&1
 ID="$("$CANOPY" task add "shipped thing" 2>/dev/null)"
 "$CANOPY" task set "$ID" pr 1 >/dev/null
 "$CANOPY" task set "$ID" worktree "$R2" >/dev/null
+"$CANOPY" task set "$ID" agent claude >/dev/null
+"$CANOPY" task set "$ID" worker_session worker-123 >/dev/null
 "$CANOPY" task status "$ID" pr-open >/dev/null
 # watch once reconciles (worktree return may fail with no treehouse — must not block the flip)
-PATH="$STUB:$PATH" "$CANOPY" watch once >/dev/null 2>&1 || true
+CANOPY_STOP_MARKER="$WORK/worker-stopped" PATH="$STUB:$PATH" "$CANOPY" watch once >/dev/null 2>&1 || true
 [ "$(jq -r '.tasks[0].status' "$R2/.canopy/state.json")" = "done" ] && ok "watch once flips merged -> done (return failure can't block it)" || bad "watch once did not flip"
+[ -f "$WORK/worker-stopped" ] && ok "watch once stops merged worker" || bad "watch once left worker running"
 # recover reconciles the same way (Layer 1 redundancy)
 "$CANOPY" task status "$ID" pr-open >/dev/null
 PATH="$STUB:$PATH" HOME="$H" "$CANOPY" recover >/dev/null 2>&1 || true
