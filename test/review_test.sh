@@ -16,6 +16,15 @@ CANOPY_ROOT="$CANOPY_ROOT"; export CANOPY_ROOT
 
 echo "== review pure-helper tests =="
 
+# reviewer follows the orchestrator harness unless explicitly overridden
+unset CANOPY_ORCHESTRATOR_AGENT
+eq "reviewer defaults to Claude" "$(_reviewer_agent_default)" "claude"
+CANOPY_ORCHESTRATOR_AGENT=codex
+eq "reviewer follows Codex orchestrator" "$(_reviewer_agent_default)" "codex"
+CANOPY_ORCHESTRATOR_AGENT=claude
+eq "reviewer follows Claude orchestrator" "$(_reviewer_agent_default)" "claude"
+unset CANOPY_ORCHESTRATOR_AGENT
+
 # _extract_json: bare JSON
 eq "bare json" "$(printf '{"verdict":"clean","x":1}' | _extract_json)" '{"verdict":"clean","x":1}'
 

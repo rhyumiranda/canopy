@@ -34,7 +34,7 @@ echo "== canopy setup =="
 
 # --- real run (sandboxed HOME) ---
 H="$WORK/home"; mkdir -p "$H"
-OUT="$(HOME="$H" "$CANOPY" setup 2>&1)"
+OUT="$(HOME="$H" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$CANOPY" setup 2>&1)"
 case "$OUT" in
   *"(dry-run)"*) bad "real setup must NOT be labeled (dry-run)" ;;
   *"done"*)      ok "real setup labeled plainly (not dry-run)" ;;
@@ -73,7 +73,7 @@ else
 fi
 
 # --- guard: running setup from the installed snapshot refuses (no self-copy) ---
-if HOME="$H" "$H/.local/bin/canopy" setup >/dev/null 2>&1; then
+if HOME="$H" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$H/.local/bin/canopy" setup >/dev/null 2>&1; then
   bad "setup from the installed snapshot should refuse"
 else
   ok "setup from the installed snapshot refuses"
@@ -81,7 +81,7 @@ fi
 
 # --- dry-run (fresh sandbox) previews without touching disk ---
 H2="$WORK/home2"; mkdir -p "$H2"
-OUT2="$(HOME="$H2" "$CANOPY" setup --dry-run 2>&1)"
+OUT2="$(HOME="$H2" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$CANOPY" setup --dry-run 2>&1)"
 case "$OUT2" in
   *"(dry-run)"*) ok "dry-run is labeled (dry-run)" ;;
   *)             bad "dry-run not labeled" ;;
@@ -90,7 +90,7 @@ esac
 
 # --- explicit preview channel is accepted and recorded ---
 H3="$WORK/home3"; mkdir -p "$H3"
-OUT3="$(HOME="$H3" "$CANOPY" setup --channel codex-preview 2>&1)"
+OUT3="$(HOME="$H3" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$CANOPY" setup --channel codex-preview 2>&1)"
 case "$OUT3" in
   *"channel=codex-preview"*) ok "preview setup reports preview channel" ;;
   *)                         bad "preview setup did not report preview channel" ;;
@@ -112,7 +112,7 @@ APP4="$H4/.local/share/canopy"
 [ "$(cat "$APP4/.channel-ref" 2>/dev/null)" = "rhyu/experimental-herdr-tabs" ] && ok "Herdr preview maps to experimental branch" || bad "Herdr preview branch mapping wrong"
 
 # --- bad channel fails loudly ---
-if HOME="$WORK/home4" "$CANOPY" setup --channel nope >/dev/null 2>&1; then
+if HOME="$WORK/home4" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$CANOPY" setup --channel nope >/dev/null 2>&1; then
   bad "unknown channel should fail"
 else
   ok "unknown channel fails"

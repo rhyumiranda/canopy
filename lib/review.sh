@@ -78,6 +78,14 @@ _reviewer_model_for() {
   esac
 }
 
+_reviewer_agent_default() {
+  if [ -n "${CANOPY_ORCHESTRATOR_AGENT:-}" ]; then
+    _canopy_agent_validate "$CANOPY_ORCHESTRATOR_AGENT"
+  else
+    printf '%s\n' claude
+  fi
+}
+
 _review_schema() {
   cat <<'EOF'
 {
@@ -173,7 +181,8 @@ EOF
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"
   [ -n "$wt" ] || die "task $id not leased"
-  agent="${agent:-$(canopy_task_agent "$id")}"
+  # Follow the orchestrator harness by default; explicit --agent still wins.
+  agent="${agent:-$(_reviewer_agent_default)}"
   task_status "$id" reviewing >/dev/null
 
   # Intent (goal + why) sharpens deliberate-choice-vs-bug judgement.

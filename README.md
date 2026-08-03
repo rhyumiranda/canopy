@@ -124,7 +124,7 @@ canopy worker send "$id" "status?"       # send text to its agent
 canopy worker status "$id"               # show Herdr agent status
 canopy worker resume "$id"              # reuse the persisted Herdr tab
 canopy worker close "$id"               # requires ready_for_review + passing checks
-canopy review "$id"                    # one independent diff review (Claude default)
+canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
 canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
 canopy status                          # the board

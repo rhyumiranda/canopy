@@ -38,7 +38,7 @@ EOF
   if [ "$dry" = 1 ]; then
     log "[dry-run] would launch:"
     if [ "$agent" = codex ]; then
-      log "  CANOPY_ROLE=orchestrator CANOPY_ORCHESTRATOR_AGENT=codex codex -s ${CANOPY_CODEX_START_SANDBOX:-workspace-write} -a ${CANOPY_CODEX_START_APPROVAL:-on-request} \"<orchestrator playbook + orient prompt: $((${#body} + ${#prompt})) chars>\""
+      log "  CANOPY_ROLE=orchestrator CANOPY_ORCHESTRATOR_AGENT=codex codex -s ${CANOPY_CODEX_START_SANDBOX:-workspace-write} -a ${CANOPY_CODEX_START_APPROVAL:-never} \"<orchestrator playbook + orient prompt: $((${#body} + ${#prompt})) chars>\""
     else
       log "  CANOPY_ROLE=orchestrator CANOPY_ORCHESTRATOR_AGENT=claude claude --append-system-prompt <orchestrator playbook: ${#body} chars> \"<orient prompt>\""
     fi
@@ -48,7 +48,7 @@ EOF
   if [ "$agent" = codex ]; then
     need codex
     info "launching Codex as the Canopy orchestrator..."
-    CANOPY_ROLE=orchestrator CANOPY_ORCHESTRATOR_AGENT=codex exec codex -s "${CANOPY_CODEX_START_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_START_APPROVAL:-on-request}" "$(printf '%s\n\n%s\n' "$body" "$prompt")"
+    CANOPY_ROLE=orchestrator CANOPY_ORCHESTRATOR_AGENT=codex exec codex -s "${CANOPY_CODEX_START_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_START_APPROVAL:-never}" "$(printf '%s\n\n%s\n' "$body" "$prompt")"
   else
     need claude   # only a real launch needs claude; --dry-run is a dependency-free preview
     info "launching Claude Code as the Canopy orchestrator..."

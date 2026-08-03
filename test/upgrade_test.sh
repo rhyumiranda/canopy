@@ -44,7 +44,7 @@ git -C "$S" checkout -q main
 
 # --- install from S into a sandbox HOME (records .source) ---
 H="$WORK/home"; mkdir -p "$H"
-CANOPY_ROOT="$S" HOME="$H" "$S/bin/canopy" setup --channel codex-preview >/dev/null 2>&1
+CANOPY_ROOT="$S" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" HOME="$H" "$S/bin/canopy" setup --channel codex-preview >/dev/null 2>&1
 APP="$H/.local/share/canopy"
 [ "$(cat "$APP/.source" 2>/dev/null)" = "$APP/source" ] && ok "setup records the managed source checkout" || bad "no/incorrect .source record"
 [ -d "$APP/source/.git" ] && ok "setup creates the managed source clone" || bad "managed source clone missing"

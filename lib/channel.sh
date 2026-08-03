@@ -15,13 +15,7 @@ canopy_channel_seed() {
 }
 
 canopy_channel_upstream() {
-  local upstream
-  upstream="$(git -C "$CANOPY_ROOT" remote get-url origin 2>/dev/null || true)"
-  if [ -n "$upstream" ]; then
-    printf '%s\n' "$upstream"
-  else
-    printf '%s\n' "$CANOPY_ROOT"
-  fi
+  printf '%s\n' "${CANOPY_CHANNEL_UPSTREAM:-https://github.com/rhyumiranda/canopy.git}"
 }
 
 canopy_channel_source_dir() {

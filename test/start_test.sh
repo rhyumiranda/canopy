@@ -20,6 +20,17 @@ echo "$OUT" | grep -q 'CANOPY_ROLE=orchestrator' && ok "start sets CANOPY_ROLE=o
 OUT2="$(cd "$R" && "$CANOPY" start --codex --dry-run 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "start --codex --dry-run succeeds" || bad "start codex dry-run failed"
 echo "$OUT2" | grep -q 'codex' && ok "start --codex targets codex" || bad "codex dry-run missing codex"
+echo "$OUT2" | grep -q -- '-a never' && ok "start --codex bypasses permission prompts" || bad "codex start does not bypass permission prompts"
+
+# real launch keeps the same default (with a fake Codex binary)
+FAKE_BIN="$WORK/fake-bin"; mkdir -p "$FAKE_BIN"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" > "$CANOPY_CAPTURE"' > "$FAKE_BIN/codex"
+chmod +x "$FAKE_BIN/codex"
+CAPTURE="$WORK/codex-args"
+( cd "$R" && PATH="$FAKE_BIN:$PATH" CANOPY_CAPTURE="$CAPTURE" "$CANOPY" start --codex >/dev/null 2>&1 )
+grep -qx -- '-a' "$CAPTURE" && grep -qx -- 'never' <(sed -n '/^-a$/{n;p;}' "$CAPTURE") \
+  && ok "real codex launch bypasses permission prompts" \
+  || bad "real codex launch does not bypass permission prompts"
 
 # refuses outside a canopy repo
 D="$WORK/plain"; mkdir -p "$D"; ( cd "$D"; git init -q )
