@@ -115,7 +115,7 @@ canopy worker spawn "$id"              # detached Claude worker: implement -> do
 canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + resumable session id)
                                        # (via `canopy start`, workers are steerable in-session
                                        #  Claude panes instead; `worker spawn` is the detached path)
-canopy review "$id"                    # one independent diff review (Claude default)
+canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
 canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
 canopy status                          # the board
