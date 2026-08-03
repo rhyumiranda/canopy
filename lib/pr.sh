@@ -159,7 +159,7 @@ canopy_pr_open() {
     printf '%s\n' "$out" >&2
     die "pr create failed"
   fi
-  prnum="$(printf '%s' "$out" | grep -oE '/pull/[0-9]+|#[0-9]+' | grep -oE '[0-9]+' | head -1)"
+  prnum="$(printf '%s' "$out" | grep -oE '/pull/[0-9]+|#[0-9]+' | grep -oE '[0-9]+' | head -1)" || prnum=""
   if [ -z "$prnum" ]; then warn "could not parse PR number:"; printf '%s\n' "$out" >&2; die "could not parse PR number from gh-axi output"; fi
 
   task_set "$id" pr "$prnum" >/dev/null

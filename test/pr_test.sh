@@ -84,6 +84,7 @@ printf '%s\n' \
   '  "label create") exit 0 ;;' \
   '  "pr create")' \
   '    [ "${GH_AXI_PR_CREATE_FAIL:-0}" = 1 ] && { printf "%s\n" "boom from gh-axi"; exit 42; }' \
+  '    [ "${GH_AXI_PR_CREATE_UNPARSABLE:-0}" = 1 ] && { printf "%s\n" "created somewhere unexpected"; exit 0; }' \
   '    printf "%s\n" "https://github.com/org/repo/pull/777"; exit 0 ;;' \
   'esac' \
   'exit 0' > "$FAKEBIN/gh-axi"
@@ -140,6 +141,23 @@ PR_FAIL_RC=$?
 [ "$PR_FAIL_RC" -ne 0 ] && ok "pr open fails when gh-axi pr create fails" || bad "pr open should fail on pr create failure"
 grep -q 'boom from gh-axi' "$WORK/pr-fail.err" && ok "pr create stderr includes captured gh-axi error" || bad "missing captured gh-axi error"
 grep -q 'pr create failed' "$WORK/pr-fail.err" && ok "pr create failure message is clear" || bad "missing clear pr create failure"
+
+(
+  cd "$PRR"
+  PRID3="$("$CANOPY" task add "open pr unparsable output" 2>/dev/null)"
+  git checkout -qb rhyu/pr-unparsable-output
+  printf 'unparsable\n' >> f
+  git add -A
+  git commit -qm "fix: surface unparsable pr output"
+  "$CANOPY" task set "$PRID3" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID3" branch rhyu/pr-unparsable-output >/dev/null
+  "$CANOPY" task set "$PRID3" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" GH_AXI_PR_CREATE_UNPARSABLE=1 CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID3" > "$WORK/pr-unparsable.out" 2> "$WORK/pr-unparsable.err"
+)
+PR_UNPARSABLE_RC=$?
+[ "$PR_UNPARSABLE_RC" -ne 0 ] && ok "pr open fails on unparsable gh-axi output" || bad "pr open should fail on unparsable gh-axi output"
+grep -q 'created somewhere unexpected' "$WORK/pr-unparsable.err" && ok "unparsable output is shown" || bad "missing unparsable gh-axi output"
+grep -q 'could not parse PR number from gh-axi output' "$WORK/pr-unparsable.err" && ok "unparsable PR number message is clear" || bad "missing unparsable PR number message"
 
 echo
 echo "== $PASS passed, $FAIL failed =="

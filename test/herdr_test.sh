@@ -64,9 +64,14 @@ eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'
 [ "$(jq -r .status "$TF2")" = done ] && ok 'close marks task done' || bad 'task not done'
 
+eval "$ENV HERDR_TAB_N=3 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID >/dev/null 2>&1" && ok 'backend switch launches new Herdr pane' || bad 'backend switch failed'
+[ "$(jq -r .herdr_pane_id "$TF")" = pane-codex ] && ok 'backend switch replaces persisted pane' || bad 'backend switch reused old pane'
+[ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = 2 ] && ok 'backend switch starts requested backend' || bad 'backend switch did not start Codex'
+
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"
 (cd "$R2" && eval "$ENV \"$CANOPY\" task set $ID3 worktree $R2 >/dev/null 2>&1")
 if (cd "$R2" && eval "HERDR_NO_CONTEXT=1 $ENV \"$CANOPY\" worker start --agent claude $ID3 >/dev/null 2>&1"); then bad 'missing workspace context should fail'; else ok 'missing workspace context fails clearly'; fi
+if (cd "$R2" && eval "$ENV \"$CANOPY\" worker start --agent claude --workspace ws-missing $ID3 >/dev/null 2>&1"); then bad 'invalid explicit workspace should fail'; else ok 'invalid explicit workspace fails clearly'; fi
 
 printf '\n== %s passed, %s failed ==\n' "$PASS" "$FAIL"; [ "$FAIL" -eq 0 ]
