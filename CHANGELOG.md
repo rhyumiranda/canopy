@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/rhyumiranda/canopy/compare/v0.8.1...v0.8.2) (2026-08-03)
+
+
+### Bug Fixes
+
+* **cleanup:** close merged Herdr tabs ([1802957](https://github.com/rhyumiranda/canopy/commit/1802957188ea47666d7e69806ca4dae91dc6006b))
+* **cleanup:** close merged Herdr tabs ([6541103](https://github.com/rhyumiranda/canopy/commit/6541103afac173ea927fa8b505675af0f5b2082f))
+
 ## [0.8.1](https://github.com/rhyumiranda/canopy/compare/v0.8.0...v0.8.1) (2026-08-03)
 
 
