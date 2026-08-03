@@ -39,6 +39,20 @@ eq "worktree path helper" "$("$CANOPY" worktree path "$ID" 2>/dev/null)" "$P"
 # return (clean tree -> should succeed)
 if "$CANOPY" worktree return "$ID" >/dev/null 2>&1; then ok "clean worktree returns to pool"; else bad "return failed on clean tree"; fi
 
+# a configured base branch is what the feature branch is cut from (not main)
+git -C "$R" branch develop main
+echo devmarker > "$R/devfile"; git -C "$R" add -A; git -C "$R" commit -qm "develop-only commit"
+git -C "$R" branch -f develop HEAD          # advance develop past main
+git -C "$R" checkout -q main                # keep the pool's default on main
+DEVTIP="$(git -C "$R" rev-parse develop)"
+"$CANOPY" base develop >/dev/null 2>&1
+ID2="$("$CANOPY" task add "cut from develop" 2>/dev/null)"
+P2="$("$CANOPY" worktree lease "$ID2" 2>/dev/null)"
+# no origin in this fixture -> lease anchors to the LOCAL base branch (develop)
+eq "feature branch cut from the configured base (develop)" \
+   "$(git -C "$P2" merge-base HEAD develop)" "$DEVTIP"
+"$CANOPY" worktree return "$ID2" >/dev/null 2>&1 || true
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

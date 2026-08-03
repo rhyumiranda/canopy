@@ -131,7 +131,9 @@ canopy status                          # the board
 
 Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
 
-Full CLI: `init · start · status · task · mode · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
+Full CLI: `init · start · status · task · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
+
+**Integrating on a non-default branch?** If your repo merges into `develop` (not `main`), set it once — `canopy base develop` (or `canopy init --base develop`). Every worktree is then cut from a *fresh* copy of that branch and every PR targets it, so work never anchors to a stale `main`. `canopy base` prints the current one.
 
 **How it works:** the *behavior* lives in `agents/` (orchestrator, worker, reviewer) and `commands/` (the skills above); the `lib/` shell scripts are the deterministic glue. It's small — read the code.
 

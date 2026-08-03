@@ -127,7 +127,7 @@ canopy_pr_open() {
   [ -n "$(jq -r '.what // .brief // ""' "$tf")" ] || warn "task $id has no brief — PR 'What changed' will be blank (canopy task set $id brief \"…\")"
   [ -n "$(jq -r '.why // ""' "$tf")" ] || warn "task $id has no why — PR 'Why' will be blank (canopy task set $id why \"…\")"
 
-  base="$(_default_branch "$wt")"
+  base="$(base_branch "$wt")"
   title="$(git -C "$wt" log -1 --pretty=%s)"
 
   info "pushing $branch"

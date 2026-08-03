@@ -67,6 +67,7 @@ commands:
   scribe replace <n> <fact>  Rewrite entry n in place
   scribe rm <n>        Delete a stale entry
   mode [yolo|guided]   Get or set the global mode
+  base [branch]        Get or set the integration branch (worktrees cut from it; PRs target it)
   upgrade              Pull latest + reinstall the CLI (from any directory)
   version              Print version
 
@@ -107,6 +108,7 @@ case "$cmd" in
       stop)      canopy_worker_stop "$@" ;;
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;
+  base)          state_base "$@" ;;
   review)        canopy_review "$@" ;;
   pr)
     sub="${1:-}"; shift || true

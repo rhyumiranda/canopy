@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/rhyumiranda/canopy/compare/v0.4.0...v0.5.0) (2026-08-03)
+
+
+### Features
+
+* **base:** control which branch worktrees are cut from and PRs target ([408a0ff](https://github.com/rhyumiranda/canopy/commit/408a0ff38feb60ab02b9b944aa51ca6f63c381bd))
+* **base:** control which branch worktrees are cut from and PRs target ([af13f2b](https://github.com/rhyumiranda/canopy/commit/af13f2bc55aee9a260219d99d95f59422decf9a7))
+
 ## [0.4.0](https://github.com/rhyumiranda/canopy/compare/v0.3.0...v0.4.0) (2026-08-03)
 
 
