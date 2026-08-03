@@ -106,6 +106,8 @@ canopy start --codex                   # opens Codex AS the orchestrator
 
 `canopy start --codex` keeps the same Canopy loop, but it does **not** replace the live steerable Claude worker panes you use for hands-on implementation. That stays the default worker path. Codex support is additive on the headless surfaces: repo-local hooks under `.codex/hooks.json`, detached `canopy worker spawn --agent codex`, detached `canopy worker fix --agent codex`, and `canopy review --agent codex`.
 
+Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. The detached `worker spawn` path remains available for both Claude and Codex.
+
 **Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
 id=$(canopy task add "add a /health endpoint")
@@ -116,7 +118,7 @@ canopy worker spawn "$id"              # detached Claude worker: implement -> do
 canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + resumable session id)
                                        # (via `canopy start`, workers are steerable in-session
                                        #  Claude panes instead; `worker spawn` is the detached path)
-canopy worker start --agent claude "$id" # Herdr tab worker (shared workspace, one tab per task)
+canopy worker start --agent claude --workspace <id> "$id" # Herdr tab worker (existing workspace)
 canopy worker attach "$id"              # attach to its Herdr tab
 canopy worker send "$id" "status?"       # send text to its agent
 canopy worker status "$id"               # show Herdr agent status

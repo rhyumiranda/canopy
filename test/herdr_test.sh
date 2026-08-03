@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Herdr interactive worker flow with a deterministic fake Herdr binary.
+# Herdr interactive worker flow with deterministic fake Herdr; both backends.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; CANOPY="$ROOT/bin/canopy"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
@@ -13,38 +13,58 @@ cat > "$WORK/bin/herdr" <<'EOF'
 set -u
 printf '%s\n' "$*" >> "${HERDR_LOG:?}"
 case "$1 ${2:-}" in
-  workspace\ create) printf '%s\n' '{"id":"ws-1"}' ;;
-  tab\ create) printf '%s\n' '{"id":"tab-1"}' ;;
-  agent\ start) case "$*" in *codex*) printf '%s\n' '{"pane_id":"pane-codex","agent_session_id":"herdr-codex"}' ;; *) printf '%s\n' '{"pane_id":"pane-claude","agent_session_id":"herdr-claude"}' ;; esac ;;
-  agent\ explain) printf '%s\n' '{"state":"working","agent":"claude"}' ;;
+  workspace\ get) [ "${3:-}" = ws-existing ] ;;
+  workspace\ create) exit 99 ;;
+  pane\ current)
+    [ "${HERDR_NO_CONTEXT:-0}" = 1 ] && exit 1
+    printf '%s\n' '{"pane_id":"current-pane","workspace_id":"ws-existing"}' ;;
+  tab\ list) printf '%s\n' '[]' ;;
+  tab\ create) printf '%s\n' '{"tab_id":"tab-'"${HERDR_TAB_N:-1}"'"}' ;;
+  tab\ get) exit 0 ;;
+  pane\ list) printf '%s\n' '[]' ;;
+  pane\ get) exit 0 ;;
+  agent\ start)
+    case "$*" in *codex*) printf '%s\n' '{"pane_id":"pane-codex","agent_session_id":"herdr-codex"}' ;; *) printf '%s\n' '{"pane_id":"pane-claude","agent_session_id":"herdr-claude"}' ;; esac ;;
+  agent\ explain) printf '%s\n' '{"state":"working"}' ;;
   *) exit 0 ;;
 esac
 EOF
 chmod +x "$WORK/bin/herdr"
+
 R="$WORK/repo"; mkdir -p "$R"; (cd "$R" && git init -q && git config user.email t@t && git config user.name t && echo hi > f && git add f && git commit -qm init)
 cd "$R"
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" init >/dev/null 2>&1
-ID="$(HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" task add 'interactive worker' 2>/dev/null)"
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" task set "$ID" brief 'do the work' >/dev/null 2>&1
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" task set "$ID" worktree "$R" >/dev/null 2>&1
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker start --agent claude "$ID" >/dev/null 2>&1 && ok 'start creates Herdr worker' || bad 'start failed'
+ENV="HERDR_LOG=$WORK/herdr.log PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+eval "$ENV \"$CANOPY\" init >/dev/null 2>&1"
+ID="$(eval "$ENV \"$CANOPY\" task add 'interactive worker' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID brief 'do the work' >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID worktree $R >/dev/null 2>&1"
 TF="$R/.canopy/tasks/$ID.json"
-[ "$(jq -r .herdr_workspace_id "$TF")" = ws-1 ] && ok 'workspace id persisted' || bad 'workspace id missing'
-[ "$(jq -r .herdr_tab_id "$TF")" = tab-1 ] && ok 'tab id persisted' || bad 'tab id missing'
-[ "$(jq -r .herdr_pane_id "$TF")" = pane-claude ] && ok 'pane id persisted' || bad 'pane id missing'
-[ "$(grep -c 'workspace create' "$WORK/herdr.log")" = 1 ] && ok 'one shared workspace created' || bad 'workspace duplicated'
-[ "$(grep -c -- '--no-focus' "$WORK/herdr.log")" -ge 2 ] && ok 'worker tabs are non-focused' || bad 'worker tab focused'
-ID2="$(HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" task add 'codex worker' 2>/dev/null)"
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" task set "$ID2" worktree "$R" >/dev/null 2>&1
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker start --agent codex "$ID2" >/dev/null 2>&1 && ok 'Codex gets its own Herdr tab' || bad 'Codex start failed'
-[ "$(grep -c 'tab create' "$WORK/herdr.log")" = 2 ] && ok 'Claude and Codex tabs stay separate' || bad 'worker tabs not separate'
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker start "$ID" >/dev/null 2>&1
-[ "$(grep -c 'tab create' "$WORK/herdr.log")" = 2 ] && ok 'duplicate start reuses tab' || bad 'duplicate tab created'
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker send "$ID" 'continue' >/dev/null 2>&1 && ok 'send succeeds' || bad 'send failed'
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker attach "$ID" >/dev/null 2>&1 && ok 'attach succeeds' || bad 'attach failed'
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker status "$ID" >/dev/null 2>&1 && ok 'status succeeds' || bad 'status failed'
-if HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker close "$ID" >/dev/null 2>&1; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" task checkpoint "$ID" ready_for_review >/dev/null 2>&1
-HOME="$WORK/home" HERDR_LOG="$WORK/herdr.log" PATH="$WORK/bin:$PATH" "$CANOPY" worker close "$ID" >/dev/null 2>&1 && ok 'close validates and closes' || bad 'close failed after ready_for_review'
-[ "$(jq -r .status "$TF")" = done ] && ok 'close marks task done' || bad 'task not done'
+eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID >/dev/null 2>&1" && ok 'Claude start creates Herdr tab' || bad 'Claude start failed'
+[ "$(jq -r .herdr_workspace_id "$TF")" = ws-existing ] && ok 'existing workspace id persisted' || bad 'workspace id missing'
+[ "$(jq -r .herdr_tab_id "$TF")" = tab-1 ] && ok 'Claude tab id persisted' || bad 'tab id missing'
+[ "$(jq -r .herdr_pane_id "$TF")" = pane-claude ] && ok 'Claude pane id persisted' || bad 'pane id missing'
+[ "$(grep -c 'workspace create' "$WORK/herdr.log")" = 0 ] && ok 'never creates a workspace' || bad 'workspace was created'
+grep -q 'tab create.*--workspace ws-existing' "$WORK/herdr.log" && ok 'tab reuses existing workspace' || bad 'tab did not use workspace'
+grep -q -- 'agent start claude.*claude --dangerously-skip-permissions' "$WORK/herdr.log" && ok 'Claude adapter launches Claude' || bad 'Claude adapter argv wrong'
+grep -q -- 'tab create.*--label t1 · Claude' "$WORK/herdr.log" && ok 'Claude tab label includes backend' || bad 'Claude tab label wrong'
+eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID >/dev/null 2>&1"
+[ "$(grep -c 'agent start claude' "$WORK/herdr.log")" = 1 ] && ok 'duplicate start does not relaunch' || bad 'duplicate worker launched'
+
+ID2="$(eval "$ENV \"$CANOPY\" task add 'codex worker' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID2 worktree $R >/dev/null 2>&1"
+eval "$ENV HERDR_TAB_N=2 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID2 >/dev/null 2>&1" && ok 'Codex start creates Herdr tab' || bad 'Codex start failed'
+TF2="$R/.canopy/tasks/$ID2.json"
+[ "$(jq -r .herdr_pane_id "$TF2")" = pane-codex ] && ok 'Codex pane id persisted' || bad 'Codex pane id missing'
+grep -q -- 'agent start codex.*codex .* exec --json' "$WORK/herdr.log" && ok 'Codex adapter launches Codex' || bad 'Codex adapter argv wrong'
+grep -q -- 'tab create.*--label t2 · Codex' "$WORK/herdr.log" && ok 'Codex tab label includes backend' || bad 'Codex tab label wrong'
+if eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1"; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
+eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'
+[ "$(jq -r .status "$TF2")" = done ] && ok 'close marks task done' || bad 'task not done'
+
+R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
+ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"
+(cd "$R2" && eval "$ENV \"$CANOPY\" task set $ID3 worktree $R2 >/dev/null 2>&1")
+if (cd "$R2" && eval "HERDR_NO_CONTEXT=1 $ENV \"$CANOPY\" worker start --agent claude $ID3 >/dev/null 2>&1"); then bad 'missing workspace context should fail'; else ok 'missing workspace context fails clearly'; fi
+
 printf '\n== %s passed, %s failed ==\n' "$PASS" "$FAIL"; [ "$FAIL" -eq 0 ]
