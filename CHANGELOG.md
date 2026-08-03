@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/rhyumiranda/canopy/compare/v0.3.0...v0.4.0) (2026-08-03)
+
+
+### Features
+
+* **review:** strengthen the reviewer with no-mistakes' review brief ([8fe5c3d](https://github.com/rhyumiranda/canopy/commit/8fe5c3d8e4927339062a2d165219d2886f0f35e6))
+* **review:** strengthen the reviewer with no-mistakes' review brief ([871ae69](https://github.com/rhyumiranda/canopy/commit/871ae69bf6ca6392babba5070618d8b4c8fa5c82))
+
 ## [0.3.0](https://github.com/rhyumiranda/canopy/compare/v0.2.0...v0.3.0) (2026-08-02)
 
 
