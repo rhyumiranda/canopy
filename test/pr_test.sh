@@ -73,6 +73,55 @@ LBLS="$(_pr_labels "$TF" 'fix: x')"
 case " $LBLS " in *" urgent "*) case " $LBLS " in *" bug "*) ok "explicit + derived union" ;; *) bad "missing bug: $LBLS" ;; esac ;; *) bad "missing urgent: $LBLS" ;; esac
 [ "$(printf '%s' "$LBLS" | tr ' ' '\n' | grep -c '^bug$')" = 1 ] && ok "no duplicate 'bug'" || bad "duplicate label: $LBLS"
 
+echo "== PR open after successful push =="
+FAKEBIN="$WORK/fakebin"; mkdir -p "$FAKEBIN"
+GH_LOG="$WORK/gh-axi.log"; export GH_LOG
+REAL_TAIL="$(command -v tail)"; export REAL_TAIL
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "%s\n" "$*" >> "$GH_LOG"' \
+  'case "$1 $2" in' \
+  '  "label create") exit 0 ;;' \
+  '  "pr create") printf "%s\n" "https://github.com/org/repo/pull/777"; exit 0 ;;' \
+  'esac' \
+  'exit 0' > "$FAKEBIN/gh-axi"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = "-1" ]; then exit 9; fi' \
+  'exec "$REAL_TAIL" "$@"' > "$FAKEBIN/tail"
+chmod +x "$FAKEBIN/gh-axi" "$FAKEBIN/tail"
+
+ORIGIN="$WORK/origin.git"; git init --bare -q "$ORIGIN"
+PRR="$WORK/pr-open-repo"; mkdir -p "$PRR"; (
+  cd "$PRR"
+  git init -q
+  git config user.email t@t
+  git config user.name t
+  printf 'base\n' > f
+  git add -A
+  git commit -qm base
+  git branch -M main
+  git remote add origin "$ORIGIN"
+  git push -q -u origin main
+)
+(
+  cd "$PRR"
+  "$CANOPY" init >/dev/null 2>&1
+  PRID="$("$CANOPY" task add "open pr after push" 2>/dev/null)"
+  git checkout -qb rhyu/tail-regression
+  printf 'change\n' >> f
+  git add -A
+  git commit -qm "fix: open pr after push"
+  "$CANOPY" task set "$PRID" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID" branch rhyu/tail-regression >/dev/null
+  "$CANOPY" task set "$PRID" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID" > "$WORK/pr-open.out" 2> "$WORK/pr-open.err"
+)
+PR_RC=$?
+[ "$PR_RC" -eq 0 ] && ok "pr open succeeds after push when tail -1 is unavailable" || { bad "pr open failed after push"; sed 's/^/       /' "$WORK/pr-open.err"; }
+grep -q '^pr create ' "$GH_LOG" && ok "gh-axi pr create runs after push" || bad "gh-axi pr create did not run"
+[ "$(cat "$WORK/pr-open.out")" = 777 ] && ok "pr open prints PR number only" || bad "unexpected pr open stdout: $(cat "$WORK/pr-open.out")"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
