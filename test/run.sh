@@ -31,9 +31,11 @@ R="$(new_repo)"; cd "$R"
 assert_ok "$CANOPY" init
 assert_file "$R/.canopy/state.json"
 assert_file "$R/.canopy/brief.md"
+assert_file "$R/.codex/hooks.json"
 assert_eq "state is valid json" "$(jq -e . "$R/.canopy/state.json" >/dev/null 2>&1 && echo yes)" "yes"
 assert_eq "default mode guided" "$(jq -r .mode "$R/.canopy/state.json")" "guided"
 assert_eq ".canopy gitignored" "$(grep -c '^\.canopy/$' "$R/.gitignore")" "1"
+assert_eq "codex hook config valid json" "$(jq -e . "$R/.codex/hooks.json" >/dev/null 2>&1 && echo yes)" "yes"
 # idempotent
 assert_ok "$CANOPY" init
 assert_eq "still one task list" "$(jq '.tasks|length' "$R/.canopy/state.json")" "0"
@@ -44,6 +46,8 @@ assert_eq "first id is t1" "$ID" "t1"
 assert_file "$R/.canopy/tasks/t1.json"
 assert_eq "task on board" "$(jq -r '.tasks[0].title' "$R/.canopy/state.json")" "expose postgres port"
 assert_eq "task starts planning" "$(jq -r '.tasks[0].status' "$R/.canopy/state.json")" "planning"
+assert_eq "task detail starts with null agent" "$(jq -r '.agent // "null"' "$R/.canopy/tasks/t1.json")" "null"
+assert_eq "task detail starts with null worker_pid" "$(jq -r '.worker_pid // "null"' "$R/.canopy/tasks/t1.json")" "null"
 ID2="$("$CANOPY" task add "second" 2>/dev/null)"
 assert_eq "second id is t2" "$ID2" "t2"
 

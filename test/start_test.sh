@@ -17,6 +17,10 @@ OUT="$(cd "$R" && "$CANOPY" start --dry-run 2>&1)"; rc=$?
 echo "$OUT" | grep -qi 'orchestrator playbook' && ok "start loads the orchestrator playbook" || bad "no playbook in dry-run"
 echo "$OUT" | grep -q 'CANOPY_ROLE=orchestrator' && ok "start sets CANOPY_ROLE=orchestrator" || bad "no role env"
 
+OUT2="$(cd "$R" && "$CANOPY" start --codex --dry-run 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "start --codex --dry-run succeeds" || bad "start codex dry-run failed"
+echo "$OUT2" | grep -q 'codex' && ok "start --codex targets codex" || bad "codex dry-run missing codex"
+
 # refuses outside a canopy repo
 D="$WORK/plain"; mkdir -p "$D"; ( cd "$D"; git init -q )
 if ( cd "$D" && "$CANOPY" start --dry-run >/dev/null 2>&1 ); then bad "start should refuse outside canopy"; else ok "start refuses outside a canopy repo"; fi

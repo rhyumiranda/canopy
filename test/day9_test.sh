@@ -44,6 +44,7 @@ HOME="$FAKE" "$CANOPY" setup >/dev/null 2>&1
 [ -f "$FAKE/.claude/agents/orchestrator.md" ] && ok "setup copies agents" || bad "setup missing agents"
 [ -f "$FAKE/.claude/commands/yolo.md" ] && ok "setup copies commands" || bad "setup missing commands"
 [ -f "$FAKE/.claude/canopy/hooks/session-start-digest.sh" ] && ok "setup copies hooks" || bad "setup missing hooks"
+[ -f "$FAKE/.codex/canopy/agents/orchestrator.md" ] && ok "setup packages codex agents" || bad "setup missing codex agents"
 [ -L "$FAKE/.local/bin/canopy" ] && ok "setup symlinks canopy onto PATH" || bad "setup missing canopy symlink"
 HOME="$FAKE" jq -e '.hooks.SessionStart' "$FAKE/.claude/settings.json" >/dev/null 2>&1 && ok "setup writes hooks to settings.json" || bad "setup settings missing hooks"
 # setup must NOT clobber an existing settings.json

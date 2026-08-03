@@ -2,14 +2,14 @@
 # shellcheck shell=bash
 #
 # state.json (source of truth, the board):
-#   { version, updated, mode: yolo|guided, seq, tasks: [ {id,title,status,worktree,branch,pr,worker_session} ] }
+#   { version, updated, mode: yolo|guided, seq, tasks: [ {id,title,status,worktree,branch,pr,worker_session,agent} ] }
 # tasks/<id>.json (full detail):
-#   { id,title,brief,status,worktree,branch,pr,worker_session, log:[{t,msg}] }
+#   { id,title,brief,status,worktree,branch,pr,agent,worker_session,worker_pid,worker_log, log:[{t,msg}] }
 
 # --- init -------------------------------------------------------------------
 canopy_init() {
   need git; need jq
-  local root cdir sf base=""
+  local root cdir sf base="" codex_hooks codex_snippet
   # optional: canopy init [--base <branch>]  — set the integration branch now
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -34,6 +34,17 @@ canopy_init() {
   [ -n "$base" ] && state_base "$base"
 
   [ -f "$cdir/brief.md" ] || printf '# Brief\n\n(intent goes here)\n' > "$cdir/brief.md"
+
+  mkdir -p "$root/.codex"
+  codex_hooks="$root/.codex/hooks.json"
+  codex_snippet="$root/.codex/canopy-hooks.json"
+  if [ -f "$codex_hooks" ]; then
+    cp "$CANOPY_ROOT/dist/codex-hooks.json" "$codex_snippet"
+    warn "you already have $codex_hooks — I did NOT touch it. Merge the Canopy hooks from $codex_snippet if you want repo-local Codex hooks."
+  else
+    cp "$CANOPY_ROOT/dist/codex-hooks.json" "$codex_hooks"
+    info "wrote $codex_hooks with Canopy Codex hooks"
+  fi
 
   # keep transient task state out of the target repo's PRs
   _gitignore_add "$root" ".canopy/"
@@ -68,12 +79,12 @@ task_add() {
 
   jq --arg id "$id" --arg title "$title" --arg now "$now" '
     .seq += 1 | .updated = $now
-    | .tasks += [{id:$id,title:$title,status:"planning",worktree:null,branch:null,pr:null,worker_session:null}]
+    | .tasks += [{id:$id,title:$title,status:"planning",worktree:null,branch:null,pr:null,agent:null,worker_session:null}]
   ' "$sf" | write_atomic "$sf"
 
   jq -n --arg id "$id" --arg title "$title" --arg now "$now" '
     {id:$id,title:$title,brief:"",status:"planning",worktree:null,branch:null,pr:null,
-     worker_session:null, log:[{t:$now,msg:"created"}]}
+     agent:null,worker_session:null,worker_pid:null,worker_log:null,log:[{t:$now,msg:"created"}]}
   ' | write_atomic "$(task_file "$id")"
 
   info "added task $id: $title"
@@ -88,7 +99,7 @@ task_set() {
   sf="$(state_file)"; tf="$(task_file "$id")"; now="$(_c_ts)"
 
   case "$key" in
-    title|status|worktree|branch|pr|worker_session)
+    title|status|worktree|branch|pr|worker_session|agent)
       jq --arg id "$id" --arg k "$key" --arg v "$val" --arg now "$now" '
         .updated=$now | .tasks |= map(if .id==$id then .[$k]=$v else . end)
       ' "$sf" | write_atomic "$sf" ;;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook — re-inject a <=10k digest of .canopy/state.json so the
 # orchestrator re-orients after startup/resume/clear/compact. No-op outside a
-# canopy repo. Emits the documented hookSpecificOutput JSON on stdout.
+# canopy repo. Claude expects hookSpecificOutput JSON; Codex accepts plain text.
 set -euo pipefail
 root="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 sf="$root/.canopy/state.json"
@@ -22,5 +22,9 @@ You are the orchestrator: read .canopy/ first, delegate all project-code changes
 # hard cap well under the 10k additionalContext limit
 digest="${digest:0:9500}"
 
-jq -n --arg c "$digest" \
-  '{hookSpecificOutput:{hookEventName:"SessionStart", additionalContext:$c}}'
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  jq -n --arg c "$digest" \
+    '{hookSpecificOutput:{hookEventName:"SessionStart", additionalContext:$c}}'
+else
+  printf '%s\n' "$digest"
+fi

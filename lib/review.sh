@@ -71,7 +71,46 @@ _review_prompt() {
 # Runs the reviewer with cwd = the branch worktree and only read-only tools, so it
 # can follow changed symbols to their call sites without stalling on a permission
 # prompt (headless) and without any ability to edit or run the suite.
-_review_once() {
+_reviewer_model_for() {
+  case "${1:-claude}" in
+    codex) printf '%s\n' "${CANOPY_CODEX_REVIEWER_MODEL:-gpt-5.4}" ;;
+    *)     printf '%s\n' "$REVIEWER_MODEL" ;;
+  esac
+}
+
+_review_schema() {
+  cat <<'EOF'
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "risk_level", "risk_rationale", "issues", "docs_in_sync", "summary"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["clean", "issues"] },
+    "risk_level": { "type": "string", "enum": ["low", "med", "high"] },
+    "risk_rationale": { "type": "string" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "action", "where", "problem", "fix"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["high", "med", "low"] },
+          "action": { "type": "string", "enum": ["worker-fix", "ask-user", "no-op"] },
+          "where": { "type": "string" },
+          "problem": { "type": "string" },
+          "fix": { "type": "string" }
+        }
+      }
+    },
+    "docs_in_sync": { "type": "boolean" },
+    "summary": { "type": "string" }
+  }
+}
+EOF
+}
+
+_review_once_claude() {
   local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out
   base="$(git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
   head="$(git -C "$wt" rev-parse HEAD)"
@@ -88,14 +127,53 @@ _review_once() {
   printf '%s' "$out" | _extract_json
 }
 
+_review_once_codex() {
+  local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out schema msgf prompt model
+  base="$(git -C "$wt" merge-base HEAD "$(_default_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
+  head="$(git -C "$wt" rev-parse HEAD)"
+  if [ -z "$base" ] || [ "$base" = "$head" ]; then
+    echo '{"verdict":"clean","risk_level":"low","risk_rationale":"no diff to review","issues":[],"docs_in_sync":true,"summary":"no diff to review"}'; return
+  fi
+  diff="$(git -C "$wt" diff "$base..$head")"
+  [ -n "$diff" ] || { echo '{"verdict":"clean","risk_level":"low","risk_rationale":"empty diff","issues":[],"docs_in_sync":true,"summary":"empty diff"}'; return; }
+  schema="$(mktemp "${TMPDIR:-/tmp}/canopy-review-schema.XXXXXX.json")"
+  msgf="$(mktemp "${TMPDIR:-/tmp}/canopy-review-msg.XXXXXX.json")"
+  _review_schema > "$schema"
+  prompt="$(_review_prompt "$base" "$head" "$intent" "$prov" "$diff")"
+  model="$(_reviewer_model_for codex)"
+  if ! out="$( cd "$wt" && printf '%s' "$prompt" | codex -s read-only -a never -C "$wt" -m "$model" \
+      exec --output-schema "$schema" -o "$msgf" - 2>&1 )"; then
+    rm -f "$schema" "$msgf"
+    die "codex reviewer failed: ${out:-unknown error}"
+  fi
+  [ -s "$msgf" ] || { rm -f "$schema" "$msgf"; die "codex reviewer returned no verdict"; }
+  cat "$msgf"
+  rm -f "$schema" "$msgf"
+}
+
 # canopy review <id>  -> prints verdict JSON; exit 0 if clean, 1 if issues
 canopy_review() {
-  require_canopy; need claude; need jq
-  local id="${1:?task id}"; _assert_task "$id"
-  local tf wt v verdict risk intent prov brief why prev head
+  require_canopy; need jq
+  local agent="" id tf wt v verdict risk intent prov brief why prev head
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --agent) shift; agent="$(_canopy_agent_validate "${1:-}")" ;;
+      -h|--help)
+        cat <<'EOF'
+usage: canopy review [--agent claude|codex] <id>
+EOF
+        return 0 ;;
+      *) id="${1}"; break ;;
+    esac
+    shift
+  done
+  id="${id:-${1:-}}"
+  [ -n "$id" ] || die "usage: canopy review [--agent claude|codex] <id>"
+  _assert_task "$id"
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"
   [ -n "$wt" ] || die "task $id not leased"
+  agent="${agent:-$(canopy_task_agent "$id")}"
   task_status "$id" reviewing >/dev/null
 
   # Intent (goal + why) sharpens deliberate-choice-vs-bug judgement.
@@ -107,11 +185,14 @@ canopy_review() {
   prev="$(jq -r '.review_head // ""' "$tf")"
   prov="$(_review_provenance "$wt" "$prev")"
 
-  v="$(_review_once "$wt" "$intent" "$prov")"
+  case "$agent" in
+    claude) need claude; v="$(_review_once_claude "$wt" "$intent" "$prov")" ;;
+    codex)  need codex;  v="$(_review_once_codex "$wt" "$intent" "$prov")" ;;
+  esac
   [ -n "$v" ] || die "reviewer returned nothing parseable"
   printf '%s' "$v" | jq -e '.verdict' >/dev/null 2>&1 || die "reviewer verdict not valid JSON: $v"
 
-  task_log "$id" "review: $(printf '%s' "$v" | jq -rc '{verdict,risk_level,docs_in_sync,summary}')"
+  task_log "$id" "review($agent): $(printf '%s' "$v" | jq -rc '{verdict,risk_level,docs_in_sync,summary}')"
   verdict="$(printf '%s' "$v" | jq -r '.verdict')"
   risk="$(printf '%s' "$v" | jq -r '.risk_level // "unknown"')"
   head="$(git -C "$wt" rev-parse HEAD 2>/dev/null)"
