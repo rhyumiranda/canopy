@@ -69,7 +69,7 @@ printf '%s' "$(cat "$LOGF")" | grep -q 'thread.started' && ok "worker log captur
 ok "worker stop command succeeds"
 
 ( cd "$R"; git checkout -qb rhyu/t1 >/dev/null 2>&1; echo two >> f.txt; git commit -qam 'feat: worker diff' )
-OUT2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ROOT="$CANOPY_ROOT" bash -lc '. "$CANOPY_ROOT/lib/common.sh"; . "$CANOPY_ROOT/lib/state.sh"; . "$CANOPY_ROOT/lib/agent.sh"; . "$CANOPY_ROOT/lib/review.sh"; _review_once_codex "$PWD" "" ""')"
+OUT2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ROOT="$CANOPY_ROOT" bash -c '. "$CANOPY_ROOT/lib/common.sh"; . "$CANOPY_ROOT/lib/state.sh"; . "$CANOPY_ROOT/lib/agent.sh"; . "$CANOPY_ROOT/lib/review.sh"; _review_once_codex "$PWD" "" ""')"
 printf '%s' "$OUT2" | jq -e '.verdict=="clean"' >/dev/null 2>&1 && ok "codex review helper returns clean verdict json" || bad "codex review helper missing clean verdict"
 printf '%s' "$OUT2" | jq -e '.risk_level=="low"' >/dev/null 2>&1 && ok "codex review helper returns risk" || bad "codex review helper missing risk"
 
