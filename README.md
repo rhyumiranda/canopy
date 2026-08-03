@@ -38,7 +38,7 @@ Canopy takes the coordination off your plate:
 - **One seat.** A single orchestrator session holds the plan; you don't juggle windows.
 - **Isolation by default.** Every task gets its own `treehouse` worktree and branch — no collisions, safe parallelism.
 - **Steerable workers.** Each worker is a live pane you can open, watch, and redirect mid-flight.
-- **Independent review.** A *fresh* agent reviews the diff only — it never sees the worker's reasoning, so it can't rubber-stamp. (A cheap model does this, so it stays lean.)
+- **Independent review.** A *fresh* agent reviews the diff (and the code around it — call sites, invariants) but never the worker's reasoning, so it can't rubber-stamp. It grades risk and re-reviews any fix as new code. (A cheap model does this, so it stays lean.)
 - **Nothing ships unreviewed.** No PR opens until the review is clean and the deterministic checks pass.
 - **Never lose your place.** State and progress live on disk. Clear the orchestrator whenever you want — recovery resumes each worker from its last checkpoint.
 
@@ -58,7 +58,7 @@ The missing piece was a lean layer that ties them together without adding a heav
 |---|---|---|
 | **Windows** | N tabs you mentally track | one seat, workers as panes |
 | **Isolation** | agents step on each other | one worktree per task |
-| **Review** | you, or the agent itself | a fresh, independent agent on the diff |
+| **Review** | you, or the agent itself | a fresh, independent agent — reads the diff + surrounding code, grades risk |
 | **Shipping** | "looks fine", open PR | blocked until review clean + checks pass |
 | **Context wipe** | lose the plan | state on disk; `recover` resumes |
 | **Cost** | a full session per agent | deterministic checks are free; one small review per task |
@@ -142,7 +142,7 @@ bash test/all.sh        # runs every suite; needs jq + git (+ treehouse for work
 **Ground rules (please keep these true):**
 - **Deterministic-first.** If a plain command can do it, don't spend an agent. Judgment goes to prompts; guarantees go to hooks.
 - **Isolation is sacred.** Workers run in `treehouse`-leased worktrees with raw `git` — never `-w` / `isolation: worktree`.
-- **The reviewer stays independent.** It reads only the diff; never fold it into the worker.
+- **The reviewer stays independent.** It reads the diff and surrounding code but never the worker's reasoning; never fold it into the worker.
 - **Every change adds a test.** Match the existing `test/*_test.sh` style; keep `bash test/all.sh` green.
 
 **Sending a change:** open an issue for anything non-trivial first, keep PRs atomic, explain the *what* and *why*, and note anything you couldn't test. (Canopy dogfoods this workflow — feel free to let Canopy open the PR.)
