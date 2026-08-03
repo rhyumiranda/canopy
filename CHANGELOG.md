@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/rhyumiranda/canopy/compare/v0.6.0...v0.7.0) (2026-08-03)
+
+
+### Features
+
+* **setup:** install codex skills ([cc8be9b](https://github.com/rhyumiranda/canopy/commit/cc8be9bb17342b1cad0036e177e5674b435d696c))
+* **setup:** install codex skills ([6281313](https://github.com/rhyumiranda/canopy/commit/62813137cab6f55a69d9b25bb1db78a4f30e971e))
+
 ## [0.6.0](https://github.com/rhyumiranda/canopy/compare/v0.5.0...v0.6.0) (2026-08-03)
 
 
