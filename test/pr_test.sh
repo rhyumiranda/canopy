@@ -73,6 +73,117 @@ LBLS="$(_pr_labels "$TF" 'fix: x')"
 case " $LBLS " in *" urgent "*) case " $LBLS " in *" bug "*) ok "explicit + derived union" ;; *) bad "missing bug: $LBLS" ;; esac ;; *) bad "missing urgent: $LBLS" ;; esac
 [ "$(printf '%s' "$LBLS" | tr ' ' '\n' | grep -c '^bug$')" = 1 ] && ok "no duplicate 'bug'" || bad "duplicate label: $LBLS"
 
+echo "== PR open after successful push =="
+FAKEBIN="$WORK/fakebin"; mkdir -p "$FAKEBIN"
+GH_LOG="$WORK/gh-axi.log"; export GH_LOG
+REAL_TAIL="$(command -v tail)"; export REAL_TAIL
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "%s\n" "$*" >> "$GH_LOG"' \
+  'case "$1 $2" in' \
+  '  "label create") exit 0 ;;' \
+  '  "pr create")' \
+  '    [ "${GH_AXI_PR_CREATE_FAIL:-0}" = 1 ] && { printf "%s\n" "boom from gh-axi"; exit 42; }' \
+  '    [ "${GH_AXI_PR_CREATE_UNPARSABLE:-0}" = 1 ] && { printf "%s\n" "created somewhere unexpected"; exit 0; }' \
+  '    printf "%s\n" "https://github.com/org/repo/pull/777"; exit 0 ;;' \
+  'esac' \
+  'exit 0' > "$FAKEBIN/gh-axi"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = "-1" ]; then exit 9; fi' \
+  'exec "$REAL_TAIL" "$@"' > "$FAKEBIN/tail"
+chmod +x "$FAKEBIN/gh-axi" "$FAKEBIN/tail"
+
+ORIGIN="$WORK/origin.git"; git init --bare -q "$ORIGIN"
+PRR="$WORK/pr-open-repo"; mkdir -p "$PRR"; (
+  cd "$PRR"
+  git init -q
+  git config user.email t@t
+  git config user.name t
+  printf 'base\n' > f
+  git add -A
+  git commit -qm base
+  git branch -M main
+  git remote add origin "$ORIGIN"
+  git push -q -u origin main
+)
+(
+  cd "$PRR"
+  "$CANOPY" init >/dev/null 2>&1
+  PRID="$("$CANOPY" task add "open pr after push" 2>/dev/null)"
+  git checkout -qb rhyu/tail-regression
+  printf 'change\n' >> f
+  git add -A
+  git commit -qm "fix: open pr after push"
+  "$CANOPY" task set "$PRID" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID" branch rhyu/tail-regression >/dev/null
+  "$CANOPY" task set "$PRID" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID" > "$WORK/pr-open.out" 2> "$WORK/pr-open.err"
+)
+PR_RC=$?
+[ "$PR_RC" -eq 0 ] && ok "pr open succeeds after push when tail -1 is unavailable" || { bad "pr open failed after push"; sed 's/^/       /' "$WORK/pr-open.err"; }
+grep -q '^pr create ' "$GH_LOG" && ok "gh-axi pr create runs after push" || bad "gh-axi pr create did not run"
+[ "$(cat "$WORK/pr-open.out")" = 777 ] && ok "pr open prints PR number only" || bad "unexpected pr open stdout: $(cat "$WORK/pr-open.out")"
+
+(
+  cd "$PRR"
+  PRID2="$("$CANOPY" task add "open pr create failure" 2>/dev/null)"
+  git checkout -qb rhyu/pr-create-failure
+  printf 'fail\n' >> f
+  git add -A
+  git commit -qm "fix: surface pr create failure"
+  "$CANOPY" task set "$PRID2" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID2" branch rhyu/pr-create-failure >/dev/null
+  "$CANOPY" task set "$PRID2" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" GH_AXI_PR_CREATE_FAIL=1 CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID2" > "$WORK/pr-fail.out" 2> "$WORK/pr-fail.err"
+)
+PR_FAIL_RC=$?
+[ "$PR_FAIL_RC" -ne 0 ] && ok "pr open fails when gh-axi pr create fails" || bad "pr open should fail on pr create failure"
+grep -q 'boom from gh-axi' "$WORK/pr-fail.err" && ok "pr create stderr includes captured gh-axi error" || bad "missing captured gh-axi error"
+grep -q 'pr create failed' "$WORK/pr-fail.err" && ok "pr create failure message is clear" || bad "missing clear pr create failure"
+
+(
+  cd "$PRR"
+  PRID3="$("$CANOPY" task add "open pr unparsable output" 2>/dev/null)"
+  git checkout -qb rhyu/pr-unparsable-output
+  printf 'unparsable\n' >> f
+  git add -A
+  git commit -qm "fix: surface unparsable pr output"
+  "$CANOPY" task set "$PRID3" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID3" branch rhyu/pr-unparsable-output >/dev/null
+  "$CANOPY" task set "$PRID3" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" GH_AXI_PR_CREATE_UNPARSABLE=1 CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID3" > "$WORK/pr-unparsable.out" 2> "$WORK/pr-unparsable.err"
+)
+PR_UNPARSABLE_RC=$?
+[ "$PR_UNPARSABLE_RC" -ne 0 ] && ok "pr open fails on unparsable gh-axi output" || bad "pr open should fail on unparsable gh-axi output"
+grep -q 'created somewhere unexpected' "$WORK/pr-unparsable.err" && ok "unparsable output is shown" || bad "missing unparsable gh-axi output"
+grep -q 'could not parse PR number from gh-axi output' "$WORK/pr-unparsable.err" && ok "unparsable PR number message is clear" || bad "missing unparsable PR number message"
+
+(
+  cd "$PRR"
+  PRID4="$("$CANOPY" task add "open pr push failure" 2>/dev/null)"
+  printf '%s\n' "$PRID4" > "$WORK/push-fail.id"
+  git checkout -qb rhyu/pr-push-failure
+  printf 'push fail\n' >> f
+  git add -A
+  git commit -qm "fix: surface push failure"
+  "$CANOPY" task set "$PRID4" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID4" branch rhyu/pr-push-failure >/dev/null
+  "$CANOPY" task set "$PRID4" reviewed clean >/dev/null
+  git remote set-url origin "$WORK/missing-origin.git"
+  PR_CREATE_BEFORE="$(grep -c '^pr create ' "$GH_LOG" 2>/dev/null || true)"
+  printf '%s\n' "$PR_CREATE_BEFORE" > "$WORK/push-fail-pr-create-before"
+  PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID4" > "$WORK/push-fail.out" 2> "$WORK/push-fail.err"
+)
+PR_PUSH_FAIL_RC=$?
+PR_CREATE_BEFORE="$(cat "$WORK/push-fail-pr-create-before")"
+PR_CREATE_AFTER="$(grep -c '^pr create ' "$GH_LOG" 2>/dev/null || true)"
+PRID4="$(cat "$WORK/push-fail.id")"
+[ "$PR_PUSH_FAIL_RC" -ne 0 ] && ok "pr open fails when git push fails" || bad "pr open should fail on push failure"
+grep -q 'push failed for rhyu/pr-push-failure' "$WORK/push-fail.err" && ok "push failure message is clear" || bad "missing clear push failure"
+[ "$PR_CREATE_AFTER" = "$PR_CREATE_BEFORE" ] && ok "gh-axi pr create does not run after push failure" || bad "gh-axi pr create ran after push failure"
+[ "$(jq -r '.pr // "null"' "$PRR/.canopy/tasks/$PRID4.json")" = null ] && ok "task pr stays null after push failure" || bad "task pr changed after push failure"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

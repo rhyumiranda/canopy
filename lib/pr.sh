@@ -106,7 +106,7 @@ _pr_labels() {
 canopy_pr_open() {
   require_canopy; need gh-axi; need git; need jq
   local id="${1:?task id}"; _assert_task "$id"
-  local tf wt branch base title body out prnum checks_line labels
+  local tf wt branch base title body out prnum checks_line labels push_out push_last
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"; [ -d "$wt" ] || die "task $id has no worktree"
   branch="$(jq -r '.branch // empty' "$tf")"; [ -n "$branch" ] || die "task $id has no branch"
@@ -131,7 +131,13 @@ canopy_pr_open() {
   title="$(git -C "$wt" log -1 --pretty=%s)"
 
   info "pushing $branch"
-  git -C "$wt" push -q -u origin "$branch" 2>&1 | tail -1 || die "push failed for $branch"
+  if ! push_out="$(git -C "$wt" push -q -u origin "$branch" 2>&1)"; then
+    push_last="$(printf '%s\n' "$push_out" | sed '/^$/d' | sed -n '$p')"
+    [ -n "$push_last" ] && warn "$push_last"
+    die "push failed for $branch"
+  fi
+  push_last="$(printf '%s\n' "$push_out" | sed '/^$/d' | sed -n '$p')"
+  [ -n "$push_last" ] && info "$push_last"
 
   body="$(_pr_body "$id" "$wt" "$base")"
 
@@ -148,9 +154,13 @@ canopy_pr_open() {
 
   # NB: expand as ${arr[@]+"${arr[@]}"} — on bash 3.2 (macOS) "${arr[@]}" on an
   # empty array trips `set -u` with "unbound variable".
-  out="$( cd "$wt" && gh-axi pr create --title "$title" --body "$body" --base "$base" --head "$branch" ${label_args[@]+"${label_args[@]}"} 2>&1 )"
-  prnum="$(printf '%s' "$out" | grep -oE '/pull/[0-9]+|#[0-9]+' | grep -oE '[0-9]+' | head -1)"
-  if [ -z "$prnum" ]; then warn "could not parse PR number:"; printf '%s\n' "$out" >&2; die "pr create may have failed"; fi
+  if ! out="$( cd "$wt" && gh-axi pr create --title "$title" --body "$body" --base "$base" --head "$branch" ${label_args[@]+"${label_args[@]}"} 2>&1 )"; then
+    warn "gh-axi pr create failed:"
+    printf '%s\n' "$out" >&2
+    die "pr create failed"
+  fi
+  prnum="$(printf '%s' "$out" | grep -oE '/pull/[0-9]+|#[0-9]+' | grep -oE '[0-9]+' | head -1)" || prnum=""
+  if [ -z "$prnum" ]; then warn "could not parse PR number:"; printf '%s\n' "$out" >&2; die "could not parse PR number from gh-axi output"; fi
 
   task_set "$id" pr "$prnum" >/dev/null
   task_status "$id" pr-open >/dev/null
