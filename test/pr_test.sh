@@ -159,6 +159,31 @@ PR_UNPARSABLE_RC=$?
 grep -q 'created somewhere unexpected' "$WORK/pr-unparsable.err" && ok "unparsable output is shown" || bad "missing unparsable gh-axi output"
 grep -q 'could not parse PR number from gh-axi output' "$WORK/pr-unparsable.err" && ok "unparsable PR number message is clear" || bad "missing unparsable PR number message"
 
+(
+  cd "$PRR"
+  PRID4="$("$CANOPY" task add "open pr push failure" 2>/dev/null)"
+  printf '%s\n' "$PRID4" > "$WORK/push-fail.id"
+  git checkout -qb rhyu/pr-push-failure
+  printf 'push fail\n' >> f
+  git add -A
+  git commit -qm "fix: surface push failure"
+  "$CANOPY" task set "$PRID4" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$PRID4" branch rhyu/pr-push-failure >/dev/null
+  "$CANOPY" task set "$PRID4" reviewed clean >/dev/null
+  git remote set-url origin "$WORK/missing-origin.git"
+  PR_CREATE_BEFORE="$(grep -c '^pr create ' "$GH_LOG" 2>/dev/null || true)"
+  printf '%s\n' "$PR_CREATE_BEFORE" > "$WORK/push-fail-pr-create-before"
+  PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID4" > "$WORK/push-fail.out" 2> "$WORK/push-fail.err"
+)
+PR_PUSH_FAIL_RC=$?
+PR_CREATE_BEFORE="$(cat "$WORK/push-fail-pr-create-before")"
+PR_CREATE_AFTER="$(grep -c '^pr create ' "$GH_LOG" 2>/dev/null || true)"
+PRID4="$(cat "$WORK/push-fail.id")"
+[ "$PR_PUSH_FAIL_RC" -ne 0 ] && ok "pr open fails when git push fails" || bad "pr open should fail on push failure"
+grep -q 'push failed for rhyu/pr-push-failure' "$WORK/push-fail.err" && ok "push failure message is clear" || bad "missing clear push failure"
+[ "$PR_CREATE_AFTER" = "$PR_CREATE_BEFORE" ] && ok "gh-axi pr create does not run after push failure" || bad "gh-axi pr create ran after push failure"
+[ "$(jq -r '.pr // "null"' "$PRR/.canopy/tasks/$PRID4.json")" = null ] && ok "task pr stays null after push failure" || bad "task pr changed after push failure"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
