@@ -126,7 +126,7 @@ canopy worker send "$id" "status?"       # send text to its agent
 canopy worker reconcile --agent claude "$id" # clear legacy Herdr IDs after verifying old backend
 canopy worker status "$id"               # bounded JSON summary + read command
 canopy worker read "$id"                 # fuller bounded conversation/context
-canopy worker resume --agent codex "$id" # continue a Claude task in Codex
+canopy worker resume --agent codex "$id" # continue a Claude task in Codex; reuses its saved Herdr workspace
 canopy worker close "$id"               # requires ready_for_review + passing checks
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
@@ -145,7 +145,7 @@ canopy status                          # the board
 | Codex skill | `$scribe` | Record a durable project fact from Codex. Installed by `canopy setup`. |
 | Codex skill | `$hotfix` | Start the urgent Canopy hotfix path from Codex. Installed by `canopy setup`. |
 
-Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly. `worker status` and `worker read` reject legacy Herdr IDs until that reconciliation records a backend.
+Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart. Herdr resume uses an explicit `--workspace` first, then the task's saved `herdr_workspace_id`, then normal global/current discovery. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly. `worker status` and `worker read` reject legacy Herdr IDs until that reconciliation records a backend.
 
 Full CLI: `init · start · status · task · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
 

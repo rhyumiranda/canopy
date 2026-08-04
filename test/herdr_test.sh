@@ -13,6 +13,7 @@ cat > "$WORK/bin/herdr" <<'EOF'
 set -u
 for arg in "$@"; do
   printf '%s ' "$(printf '%s' "$arg" | tr '\n' ' ')" >> "${HERDR_LOG:?}"
+  [ -z "${HERDR_ARGV_LOG:-}" ] || printf '%s\n' "$arg" >> "$HERDR_ARGV_LOG"
 done
 printf '\n' >> "${HERDR_LOG:?}"
 case "$1 ${2:-}" in
@@ -34,6 +35,7 @@ case "$1 ${2:-}" in
       legacy-tab) printf '%s\n' '{"result":{"tab":{"label":"t7 · Claude"}}}' ;;
       tab-partial) printf '%s\n' '{"result":{"tab":{"label":"t11 · Codex"}}}' ;;
       tab-attach) printf '%s\n' '{"result":{"tab":{"label":"t8 · Codex"}}}' ;;
+      tab-only) printf '%s\n' '{"result":{"tab":{"label":"'"${HERDR_TAB_ONLY_TASK:-t18}"' · Codex"}}}' ;;
       *) printf '%s\n' '{"result":{"tab":{"label":"t4 · Claude"}}}' ;;
     esac ;;
   pane\ list)
@@ -64,6 +66,7 @@ case "$1 ${2:-}" in
   agent\ explain) printf '%s\n' '{"state":"working","summary":"bounded worker summary"}' ;;
   agent\ read) printf '%s\n' 'full worker context' ;;
   agent\ attach|agent\ send) exit 0 ;;
+  pane\ report-agent) [ "${HERDR_REPORT_FAIL:-0}" = 1 ] && exit 9 || exit 0 ;;
   pane\ close) [ "${HERDR_CLOSE_PANE_FAIL:-0}" = 1 ] && exit 7 || exit 0 ;;
   tab\ close) [ "${HERDR_CLOSE_TAB_FAIL:-0}" = 1 ] && exit 8 || exit 0 ;;
   *) exit 0 ;;
@@ -101,6 +104,16 @@ grep -q -- 'agent start claude.*--dangerously-bypass-approvals-and-sandbox' "$WO
 grep -q -- 'tab create.*--label t1 · Claude' "$WORK/herdr.log" && ok 'Claude tab label includes backend' || bad 'Claude tab label wrong'
 eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID >/dev/null 2>&1"
 [ "$(grep -c 'agent start claude' "$WORK/herdr.log")" = 1 ] && ok 'duplicate start does not relaunch' || bad 'duplicate worker launched'
+eval "$ENV \"$CANOPY\" task set $ID herdr_agent_session_id 'session id with spaces' >/dev/null 2>&1"
+: > "$WORK/report.argv"
+eval "$ENV HERDR_ARGV_LOG=$WORK/report.argv \"$CANOPY\" worker resume --workspace ws-existing $ID >/dev/null 2>&1" \
+  && ok 'status report accepts spaced values' || bad 'status report failed with spaced values'
+grep -qx -- '--message' "$WORK/report.argv" && grep -qx -- 'reused existing Herdr worker' "$WORK/report.argv" \
+  && ok 'status report keeps message as one argv' || bad 'status report split message argv'
+grep -qx -- '--agent-session-id' "$WORK/report.argv" && grep -qx -- 'session id with spaces' "$WORK/report.argv" \
+  && ok 'status report keeps session id as one argv' || bad 'status report split session id argv'
+REPORT_ERR="$(eval "$ENV HERDR_REPORT_FAIL=1 \"$CANOPY\" worker resume --workspace ws-existing $ID 2>&1 >/dev/null" || true)"
+echo "$REPORT_ERR" | grep -qi 'status report failed' && ok 'status report failure is actionable' || bad 'status report failure was hidden'
 
 ID2="$(eval "$ENV \"$CANOPY\" task add 'codex worker' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID2 worktree $R >/dev/null 2>&1"
@@ -293,10 +306,27 @@ READ_ERR="$(eval "$ENV \"$CANOPY\" worker read $ID17 2>&1 >/dev/null" || true)"
 echo "$STATUS_ERR" | grep -qi 'legacy Herdr state' && ok 'status rejects ownerless legacy Herdr state' || bad 'status assumed a default backend'
 echo "$READ_ERR" | grep -qi 'legacy Herdr state' && ok 'read rejects ownerless legacy Herdr state' || bad 'read assumed a default backend'
 
+ID18="$(eval "$ENV \"$CANOPY\" task add 'tab-only stop' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID18 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID18 agent codex >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID18 herdr_tab_id tab-only >/dev/null 2>&1"
+TAB_GETS="$(grep -c 'tab get tab-only' "$WORK/herdr.log" || true)"
+eval "$ENV HERDR_TAB_ONLY_TASK=$ID18 \"$CANOPY\" worker stop $ID18 >/dev/null 2>&1" \
+  && ok 'stop handles tab-only Herdr state' || bad 'stop failed tab-only Herdr state'
+[ "$(grep -c 'tab get tab-only' "$WORK/herdr.log" || true)" -gt "$TAB_GETS" ] \
+  && ok 'tab-only stop validates tab ownership' || bad 'tab-only stop skipped ownership validation'
+TAB_ERR="$(eval "$ENV HERDR_TAB_ONLY_TASK=$ID18 HERDR_MISMATCH=1 \"$CANOPY\" worker stop $ID18 2>&1 >/dev/null" || true)"
+echo "$TAB_ERR" | grep -qi 'refusing to stop' && ok 'tab-only stop rejects mismatched tab' || bad 'tab-only stop accepted mismatched tab'
+
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"
 (cd "$R2" && eval "$ENV \"$CANOPY\" task set $ID3 worktree $R2 >/dev/null 2>&1")
 if (cd "$R2" && eval "HERDR_NO_CONTEXT=1 $ENV \"$CANOPY\" worker start --agent claude $ID3 >/dev/null 2>&1"); then bad 'missing workspace context should fail'; else ok 'missing workspace context fails clearly'; fi
 if (cd "$R2" && eval "$ENV \"$CANOPY\" worker start --agent claude --workspace ws-missing $ID3 >/dev/null 2>&1"); then bad 'invalid explicit workspace should fail'; else ok 'invalid explicit workspace fails clearly'; fi
+ID4="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add saved-workspace 2>/dev/null")"
+(cd "$R2" && eval "$ENV \"$CANOPY\" task set $ID4 worktree $R2 >/dev/null 2>&1")
+(cd "$R2" && eval "$ENV \"$CANOPY\" task set $ID4 herdr_workspace_id ws-existing >/dev/null 2>&1")
+(cd "$R2" && eval "HERDR_NO_CONTEXT=1 $ENV \"$CANOPY\" worker start --agent claude $ID4 >/dev/null 2>&1") \
+  && ok 'start uses task saved workspace before context' || bad 'saved workspace was ignored'
 
 printf '\n== %s passed, %s failed ==\n' "$PASS" "$FAIL"; [ "$FAIL" -eq 0 ]
