@@ -54,6 +54,15 @@ _herdr_id_alive() {
   [ -n "$id" ] && "$(_herdr_bin)" "$kind" get "$id" >/dev/null 2>&1
 }
 
+_herdr_id_matches() {
+  local kind="$1" id="$2" expected="$3" out labels
+  [ -n "$id" ] || return 1
+  out="$($(_herdr_bin) "$kind" get "$id" 2>/dev/null || true)"
+  [ -n "$out" ] || { _herdr_id_alive "$kind" "$id"; return; }
+  labels="$(printf '%s\n' "$out" | jq -r '.. | objects | (.label // .name // .agent // empty)' 2>/dev/null || true)"
+  [ -z "$labels" ] || printf '%s\n' "$labels" | grep -Fxq "$expected"
+}
+
 _herdr_find_tab() {
   local ws="$1" label="$2"
   "$(_herdr_bin)" tab list --workspace "$ws" 2>/dev/null \
@@ -122,7 +131,7 @@ _herdr_start() {
   tab=""
   if [ "$reuse_persisted" = 1 ]; then
     tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
-    _herdr_id_alive tab "$tab" || tab=""
+    _herdr_id_matches tab "$tab" "$label" || tab=""
   fi
   [ -n "$tab" ] || tab="$(_herdr_find_tab "$ws" "$label")"
   if [ -z "$tab" ]; then
@@ -134,7 +143,7 @@ _herdr_start() {
   pane=""
   if [ "$reuse_persisted" = 1 ]; then
     pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
-    _herdr_id_alive pane "$pane" || pane=""
+    _herdr_id_matches pane "$pane" "$alabel" || pane=""
   fi
   [ -n "$pane" ] || pane="$(_herdr_find_pane "$ws" "$alabel")"
   if [ -n "$pane" ]; then
@@ -145,7 +154,7 @@ _herdr_start() {
   fi
   prompt="$(_worker_prompt "$id" "$title" "$brief")"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf" 2>/dev/null || true)"
-  if [ "$agent" = codex ] && [ -n "$checkpoint" ]; then
+  if [ -n "$checkpoint" ]; then
     prompt="$prompt
 
 Last checkpoint:
@@ -171,18 +180,24 @@ Continue from the checkpoint; do not restart."
 }
 
 canopy_worker_start() {
-  local agent="" id="" workspace=""
+  local agent="" id="" workspace="" headless=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
       --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || die '--workspace needs a workspace id' ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] <id>'; return 0 ;;
+      --headless) headless=1 ;;
+      -h|--help) printf '%s\n' 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <id>'; return 0 ;;
       -*) die "unknown worker start option: $1" ;;
       *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker start [--agent claude|codex] <id>'; break ;;
     esac
     shift
   done
-  [ -n "$id" ] || die 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] <id>'
+  [ -n "$id" ] || die 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <id>'
+  if [ "$headless" = 1 ]; then
+    [ -z "$workspace" ] || die '--workspace is only valid for interactive Herdr workers'
+    canopy_worker_spawn ${agent:+--agent "$agent"} "$id"
+    return
+  fi
   _herdr_start "$id" "${agent:-$(canopy_task_agent "$id")}" "$workspace"
 }
 
@@ -205,11 +220,49 @@ canopy_worker_send() {
 }
 
 canopy_worker_status() {
-  require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" pane; _assert_task "$id"
+  require_canopy; need jq
+  local id="${1:?task id}" tf pane explain state summary agent context; _assert_task "$id"
+  tf="$(task_file "$id")"; agent="$(canopy_task_agent "$id")"
   pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")"
-  [ -n "$pane" ] || die "task $id has no Herdr worker"
-  "$(_herdr_bin)" agent explain "$pane" --json 2>/dev/null || "$(_herdr_bin)" agent read "$pane" --lines 20
+  explain=""
+  if [ -n "$pane" ]; then
+    _herdr_need
+    _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$agent")" || pane=""
+  fi
+  if [ -n "$pane" ]; then
+    explain="$($(_herdr_bin) agent explain "$pane" --json 2>/dev/null || true)"
+  fi
+  state="$(printf '%s\n' "$explain" | jq -r '.. | objects | (.state // .status // empty)' 2>/dev/null | head -1)"
+  summary="$(printf '%s\n' "$explain" | jq -r '.. | objects | (.summary // .message // empty)' 2>/dev/null | head -1)"
+  [ -n "$state" ] || state="unknown"
+  [ -n "$summary" ] || summary="no summary available"
+  context="canopy worker read $id"
+  jq -cn --arg task "$id" --arg backend "$agent" --arg state "$state" \
+    --arg summary "$summary" --arg workspace "$(jq -r '.herdr_workspace_id // empty' "$tf")" \
+    --arg tab "$(jq -r '.herdr_tab_id // empty' "$tf")" --arg pane "$pane" \
+    --arg checkpoint "$(jq -r '.checkpoint.note // empty' "$tf")" --arg context "$context" \
+    '{task:$task,backend:$backend,state:$state,summary:$summary,workspace:$workspace,tab:$tab,pane:$pane,checkpoint:$checkpoint,full_context:$context}'
+}
+
+canopy_worker_read() {
+  require_canopy; need jq
+  local id="${1:?task id}" lines=80 pane logf; _assert_task "$id"
+  case "${2:-}" in
+    --lines) lines="${3:-}"; [ "$lines" -ge 1 ] 2>/dev/null && [ "$lines" -le 120 ] 2>/dev/null || die '--lines must be 1..120' ;;
+    "") ;;
+    *) die 'usage: canopy worker read <id> [--lines <1..120>]' ;;
+  esac
+  pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")"
+  if [ -n "$pane" ]; then
+    _herdr_need
+    _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$(canopy_task_agent "$id")")" \
+      || die "task $id Herdr pane identity does not match"
+    "$(_herdr_bin)" agent read "$pane" --lines "$lines"
+    return
+  fi
+  logf="$(jq -r '.worker_log // empty' "$(task_file "$id")")"
+  [ -n "$logf" ] && [ -f "$logf" ] || die "task $id has no readable worker context"
+  tail -n "$lines" "$logf"
 }
 
 canopy_worker_stop() {
@@ -243,19 +296,20 @@ _canopy_worker_stop_headless() {
 }
 
 canopy_worker_resume() {
-  local id="" workspace=""
+  local id="" workspace="" agent=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || die '--workspace needs a workspace id' ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker resume [--workspace <id>] <id>'; return 0 ;;
+      --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
+      -h|--help) printf '%s\n' 'usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <id>'; return 0 ;;
       -*) die "unknown worker resume option: $1" ;;
       *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker resume [--workspace <id>] <id>'; break ;;
     esac
     shift
   done
-  [ -n "$id" ] || die 'usage: canopy worker resume [--workspace <id>] <id>'
+  [ -n "$id" ] || die 'usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <id>'
   _assert_task "$id"
-  _herdr_start "$id" "$(canopy_task_agent "$id")" "$workspace"
+  _herdr_start "$id" "${agent:-$(canopy_task_agent "$id")}" "$workspace"
   _herdr_report "$id" working "interactive worker resumed"
 }
 

@@ -108,6 +108,7 @@ case "$cmd" in
       attach)     canopy_worker_attach "$@" ;;
       send)       canopy_worker_send "$@" ;;
       status)     canopy_worker_status "$@" ;;
+      read)       canopy_worker_read "$@" ;;
       resume)     canopy_worker_resume "$@" ;;
       close)      canopy_worker_close "$@" ;;
       spawn)     canopy_worker_spawn "$@" ;;

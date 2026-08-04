@@ -12,7 +12,8 @@ _canopy_agent_validate() {
 }
 
 canopy_agent_default() {
-  _canopy_agent_validate "${CANOPY_AGENT:-claude}"
+  local agent="${CANOPY_AGENT:-${CANOPY_ORCHESTRATOR_AGENT:-claude}}"
+  _canopy_agent_validate "$agent"
 }
 
 canopy_task_agent() {
