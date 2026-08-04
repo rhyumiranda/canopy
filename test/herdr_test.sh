@@ -266,19 +266,32 @@ eval "$ENV \"$CANOPY\" task set $ID15 herdr_pane_id pane-old-cleanup >/dev/null 
 SWITCH_STARTS="$(grep -c 'agent start codex' "$WORK/herdr.log")"
 SWITCH_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID15 HERDR_CLOSE_TAB_FAIL=1 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID15 2>&1 >/dev/null" || true)"
 echo "$SWITCH_ERR" | grep -qi 'cleanup incomplete' && ok 'backend switch reports failed cleanup' || bad 'backend switch hid failed cleanup'
-[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID15.json")" = tab-old-cleanuppane-old-cleanup ] \
-  && ok 'backend switch preserves IDs after cleanup failure' || bad 'backend switch cleared IDs after cleanup failure'
+[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID15.json")" = tab-old-cleanup ] \
+  && ok 'backend switch preserves only failed ID' || bad 'backend switch kept closed pane ID'
 [ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = "$SWITCH_STARTS" ] \
   && ok 'backend switch does not launch after cleanup failure' || bad 'backend switch launched after cleanup failure'
+SWITCH_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID15 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID15 2>&1 >/dev/null" || true)"
+echo "$SWITCH_ERR" | grep -qi 'reconciled safely' && bad 'backend switch retry did not finish cleanup' || ok 'backend switch retries with remaining tab'
+[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID15.json")" = tab-1pane-codex ] \
+  && ok 'backend switch retry clears closed IDs before relaunch' || bad 'backend switch retry kept closed IDs'
 
 ID16="$(eval "$ENV \"$CANOPY\" task add 'failed legacy cleanup' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID16 worktree $R >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID16 herdr_tab_id legacy-tab >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID16 herdr_pane_id legacy-pane >/dev/null 2>&1"
-RECON_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID16 HERDR_CLOSE_PANE_FAIL=1 \"$CANOPY\" worker reconcile --agent claude $ID16 2>&1 >/dev/null" || true)"
+RECON_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID16 HERDR_CLOSE_TAB_FAIL=1 \"$CANOPY\" worker reconcile --agent claude $ID16 2>&1 >/dev/null" || true)"
 echo "$RECON_ERR" | grep -qi 'cleanup incomplete' && ok 'legacy reconciliation reports failed cleanup' || bad 'legacy reconciliation hid failed cleanup'
-[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID16.json")" = legacy-tablegacy-pane ] \
-  && ok 'legacy reconciliation preserves IDs after cleanup failure' || bad 'legacy reconciliation cleared IDs after cleanup failure'
+[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID16.json")" = legacy-tab ] \
+  && ok 'legacy reconciliation preserves only failed ID' || bad 'legacy reconciliation kept closed pane ID'
+
+ID17="$(eval "$ENV \"$CANOPY\" task add 'legacy status read' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID17 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID17 herdr_tab_id legacy-tab >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID17 herdr_pane_id legacy-pane >/dev/null 2>&1"
+STATUS_ERR="$(eval "$ENV \"$CANOPY\" worker status $ID17 2>&1 >/dev/null" || true)"
+READ_ERR="$(eval "$ENV \"$CANOPY\" worker read $ID17 2>&1 >/dev/null" || true)"
+echo "$STATUS_ERR" | grep -qi 'legacy Herdr state' && ok 'status rejects ownerless legacy Herdr state' || bad 'status assumed a default backend'
+echo "$READ_ERR" | grep -qi 'legacy Herdr state' && ok 'read rejects ownerless legacy Herdr state' || bad 'read assumed a default backend'
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"

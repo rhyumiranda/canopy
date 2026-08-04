@@ -113,6 +113,14 @@ SID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex CANOPY_FAKE
 [ "$(jq -r '.agent' "$R/.canopy/tasks/$ID2.json")" = codex ] && ok "headless start records Codex backend" || bad "headless start backend missing"
 ( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID2" >/dev/null 2>&1 )
 
+ID3="$(cd "$R" && "$CANOPY" task add 'recorded backend wins' 2>/dev/null)"
+( cd "$R" && "$CANOPY" task set "$ID3" worktree "$R" >/dev/null 2>&1 )
+( cd "$R" && "$CANOPY" task set "$ID3" agent codex >/dev/null 2>&1 )
+SID3="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=claude CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker start --headless "$ID3" 2>/dev/null)"
+[ "$SID3" = "codex-session-123" ] && ok "headless start prefers recorded task backend" || bad "headless start used orchestrator backend"
+[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID3.json")" = codex ] && ok "headless start preserves recorded backend" || bad "headless start changed recorded backend"
+( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID3" >/dev/null 2>&1 )
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
