@@ -25,7 +25,7 @@ git -C "$S" checkout -q -B rhyu/experimental-codex-package
 sed -i.bak 's/CANOPY_VERSION="[^"]*"/CANOPY_VERSION="8.8.8"/' "$S/lib/common.sh"; rm -f "$S/lib/common.sh.bak"
 git -C "$S" commit -qam "preview version"
 git -C "$S" checkout -q -B rhyu/experimental-herdr-tabs
-sed -i.bak 's/CANOPY_VERSION="[^"]*"/CANOPY_VERSION="8.8.9"/' "$S/lib/common.sh"; rm -f "$S/lib/common.sh.bak"
+sed -i.bak 's/CANOPY_VERSION="[^"]*"/CANOPY_VERSION="8.9.0"/' "$S/lib/common.sh"; rm -f "$S/lib/common.sh.bak"
 git -C "$S" commit -qam "herdr preview version"
 ORIGIN="$WORK/origin.git"; git clone -q --bare "$S" "$ORIGIN"
 git -C "$S" remote set-url origin "$ORIGIN"

@@ -40,6 +40,7 @@ _herdr_workspace() {
   if [ -n "$ws" ] && "$(_herdr_bin)" workspace get "$ws" >/dev/null 2>&1; then
     printf '%s\n' "$ws"; return 0
   fi
+  [ -z "$explicit" ] || die "Herdr workspace not found: $explicit"
   ws="$(_herdr_context_workspace)"
   [ -n "$ws" ] || die "no existing Herdr workspace context; pass --workspace <workspace-id>"
   "$(_herdr_bin)" workspace get "$ws" >/dev/null 2>&1 || die "Herdr workspace not found: $ws"
@@ -108,15 +109,21 @@ _herdr_launch() {
 
 _herdr_start() {
   require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief checkpoint ws tab pane sid out label alabel
+  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief checkpoint ws tab pane sid out label alabel stored_agent reuse_persisted
   _assert_task "$id"; agent="$(_canopy_agent_validate "$agent")"; tf="$(task_file "$id")"
   path="$(jq -r '.worktree // empty' "$tf")"
   [ -d "$path" ] || die "task $id has no leased worktree"
   title="$(jq -r '.title' "$tf")"; brief="$(jq -r '.brief // ""' "$tf")"
   label="$(_herdr_tab_label "$id" "$agent")"; alabel="$(_herdr_agent_label "$id" "$agent")"
+  stored_agent="$(jq -r '.agent // empty' "$tf" 2>/dev/null || true)"
+  reuse_persisted=1
+  [ -z "$stored_agent" ] || [ "$stored_agent" = "$agent" ] || reuse_persisted=0
   ws="$(_herdr_workspace "$explicit_ws")"
-  tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
-  _herdr_id_alive tab "$tab" || tab=""
+  tab=""
+  if [ "$reuse_persisted" = 1 ]; then
+    tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+    _herdr_id_alive tab "$tab" || tab=""
+  fi
   [ -n "$tab" ] || tab="$(_herdr_find_tab "$ws" "$label")"
   if [ -z "$tab" ]; then
     tab="$($(_herdr_bin) tab create --workspace "$ws" --cwd "$path" --label "$label" --no-focus 2>/dev/null | _herdr_tab_id)"
@@ -124,8 +131,11 @@ _herdr_start() {
   fi
   task_set "$id" herdr_workspace_id "$ws" >/dev/null
   task_set "$id" herdr_tab_id "$tab" >/dev/null
-  pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
-  _herdr_id_alive pane "$pane" || pane=""
+  pane=""
+  if [ "$reuse_persisted" = 1 ]; then
+    pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+    _herdr_id_alive pane "$pane" || pane=""
+  fi
   [ -n "$pane" ] || pane="$(_herdr_find_pane "$ws" "$alabel")"
   if [ -n "$pane" ]; then
     task_set "$id" herdr_pane_id "$pane" >/dev/null
