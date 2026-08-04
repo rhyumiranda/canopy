@@ -114,10 +114,10 @@ id=$(canopy task add "add a /health endpoint")
 canopy task set "$id" brief "adds GET /health returning 200"   # the What
 canopy task set "$id" why   "the load balancer needs a liveness probe"
 canopy worktree lease "$id"            # isolated worktree + feature branch
-canopy worker spawn "$id"              # detached Claude worker: implement -> document -> checks -> commit
-canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + resumable session id)
-                                       # (via `canopy start`, workers are steerable in-session
-                                       #  Claude panes instead; `worker spawn` is the detached path)
+canopy worker spawn "$id"              # detached worker using the orchestrator's runtime
+canopy worker spawn --agent codex "$id" # explicitly detached Codex worker (jsonl + resumable session)
+                                       # (via `canopy start`, workers are steerable Herdr panes;
+                                       #  `worker spawn` is the explicit detached path)
 canopy worker start --agent claude --workspace <id> "$id" # Herdr tab worker (existing workspace)
 canopy worker start --agent codex --workspace <id> "$id"  # Codex Herdr worker
 canopy worker start --headless "$id"                   # explicit detached worker

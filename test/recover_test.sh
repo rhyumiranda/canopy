@@ -44,8 +44,8 @@ done
 printf '\n' >> "${HERDR_LOG:?}"
 case "$1 ${2:-}" in
   workspace\ get) [ "${3:-}" = ws-existing ] ;;
-  tab\ get) exit 0 ;;
-  pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || exit 0 ;;
+  tab\ get) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
+  pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || printf '%s\n' '{"result":{"pane":{"agent":"canopy-t2-codex"}}}' ;;
   pane\ list) printf '%s\n' '[]' ;;
   agent\ start)
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done

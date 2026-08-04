@@ -145,8 +145,8 @@ _review_once_codex() {
   fi
   diff="$(git -C "$wt" diff "$base..$head")"
   [ -n "$diff" ] || { echo '{"verdict":"clean","risk_level":"low","risk_rationale":"empty diff","issues":[],"docs_in_sync":true,"summary":"empty diff"}'; return; }
-  schema="$(mktemp "${TMPDIR:-/tmp}/canopy-review-schema.XXXXXX.json")"
-  msgf="$(mktemp "${TMPDIR:-/tmp}/canopy-review-msg.XXXXXX.json")"
+  schema="$(mktemp "${TMPDIR:-/tmp}/canopy-review-schema.XXXXXX")"
+  msgf="$(mktemp "${TMPDIR:-/tmp}/canopy-review-msg.XXXXXX")"
   _review_schema > "$schema"
   prompt="$(_review_prompt "$base" "$head" "$intent" "$prov" "$diff")"
   model="$(_reviewer_model_for codex)"

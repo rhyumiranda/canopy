@@ -24,11 +24,25 @@ case "$1 ${2:-}" in
   tab\ list) printf '%s\n' '[]' ;;
   tab\ create) printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-tab","result":{"tab":{"tab_id":"tab-'"${HERDR_TAB_N:-1}"'"}}}' ;;
   tab\ get)
-    [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"other-task · Claude"}}}' || exit 0 ;;
+    [ "${HERDR_EMPTY_GET:-0}" = 1 ] && exit 0
+    [ "${HERDR_MALFORMED_GET:-0}" = 1 ] && printf '%s\n' '{' && exit 0
+    [ "${HERDR_AMBIGUOUS_GET:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"t1 · Claude"},"label":"other"}}' && exit 0
+    [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"other-task · Claude"}}}' || case "${3:-}" in
+      tab-1) printf '%s\n' '{"result":{"tab":{"label":"t1 · Claude"}}}' ;;
+      tab-2) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
+      *) printf '%s\n' '{"result":{"tab":{"label":"t4 · Claude"}}}' ;;
+    esac ;;
   pane\ list) printf '%s\n' '[]' ;;
   pane\ get)
     [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1
-    [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-other-task-claude"}}}' || exit 0 ;;
+    [ "${HERDR_EMPTY_GET:-0}" = 1 ] && exit 0
+    [ "${HERDR_MALFORMED_GET:-0}" = 1 ] && printf '%s\n' '{' && exit 0
+    [ "${HERDR_AMBIGUOUS_GET:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-t1-claude"},"agent":"other"}}' && exit 0
+    [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-other-task-claude"}}}' || case "${3:-}" in
+      pane-claude) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t1-claude"}}}' ;;
+      pane-codex) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t2-codex"}}}' ;;
+      *) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t4-claude"}}}' ;;
+    esac ;;
   agent\ start)
     if [ "${3:-}" = codex ]; then
       while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
@@ -115,6 +129,9 @@ eval "$ENV HERDR_TAB_N=3 \"$CANOPY\" worker resume --agent codex --workspace ws-
 [ "$(jq -r .herdr_pane_id "$TF")" = pane-codex ] && ok 'backend switch replaces persisted pane' || bad 'backend switch reused old pane'
 [ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = 3 ] && ok 'backend switch starts requested backend' || bad 'backend switch did not start Codex'
 grep -q 'continue in Codex' "$WORK/codex.stdin" && ok 'Claude-to-Codex resume carries checkpoint' || bad 'Claude-to-Codex resume lost checkpoint'
+grep -q 'pane send-keys pane-claude CTRL-C' "$WORK/herdr.log" && ok 'backend switch stops old pane' || bad 'backend switch left old pane running'
+grep -q 'pane close pane-claude' "$WORK/herdr.log" && ok 'backend switch closes old pane' || bad 'backend switch left old pane open'
+grep -q 'tab close tab-1' "$WORK/herdr.log" && ok 'backend switch closes old tab' || bad 'backend switch left old tab open'
 
 ID4="$(eval "$ENV \"$CANOPY\" task add 'identity check' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID4 worktree $R >/dev/null 2>&1"
@@ -124,6 +141,24 @@ eval "$ENV \"$CANOPY\" task set $ID4 herdr_tab_id tab-stale >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID4 herdr_pane_id pane-stale >/dev/null 2>&1"
 eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID4 >/dev/null 2>&1" \
   && ok 'mismatched persisted Herdr identity relaunches' || bad 'mismatched Herdr identity was reused'
+
+ID5="$(eval "$ENV \"$CANOPY\" task add 'strict identity' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID5 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID5 agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID5 herdr_workspace_id ws-existing >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID5 herdr_tab_id tab-empty >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID5 herdr_pane_id pane-empty >/dev/null 2>&1"
+eval "$ENV HERDR_EMPTY_GET=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID5 >/dev/null 2>&1" \
+  && ok 'empty Herdr identity relaunches' || bad 'empty Herdr identity was reused'
+
+for mode in HERDR_MALFORMED_GET HERDR_AMBIGUOUS_GET; do
+  if ( HERDR_LOG="$WORK/herdr.log" env "$mode=1" PATH="$WORK/bin:$PATH" CANOPY_HERDR_BIN="$WORK/bin/herdr" CANOPY_ROOT="$ROOT" \
+       bash -c '. "$1/lib/common.sh"; . "$1/lib/state.sh"; . "$1/lib/agent.sh"; . "$1/lib/herdr.sh"; _herdr_id_matches tab probe "t1 · Claude"' _ "$ROOT" ); then
+    bad "$mode Herdr identity was accepted"
+  else
+    ok "$mode Herdr identity is rejected"
+  fi
+done
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"

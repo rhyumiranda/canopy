@@ -58,9 +58,28 @@ _herdr_id_matches() {
   local kind="$1" id="$2" expected="$3" out labels
   [ -n "$id" ] || return 1
   out="$($(_herdr_bin) "$kind" get "$id" 2>/dev/null || true)"
-  [ -n "$out" ] || { _herdr_id_alive "$kind" "$id"; return; }
-  labels="$(printf '%s\n' "$out" | jq -r '.. | objects | (.label // .name // .agent // empty)' 2>/dev/null || true)"
-  [ -z "$labels" ] || printf '%s\n' "$labels" | grep -Fxq "$expected"
+  [ -n "$out" ] || return 1
+  labels="$(printf '%s\n' "$out" | jq -er --arg kind "$kind" '
+    [.. | objects |
+      (if $kind == "tab" then (.label? // .name? // empty)
+       else (.agent? // .label? // .name? // empty) end)
+      | select(type == "string" and length > 0)]
+    | if length == 1 then .[0] else empty end
+  ' 2>/dev/null || true)"
+  [ -n "$labels" ] && [ "$labels" = "$expected" ]
+}
+
+_herdr_stop_owned() {
+  local id="$1" agent="$2" tab="$3" pane="$4" label alabel
+  label="$(_herdr_tab_label "$id" "$agent")"
+  alabel="$(_herdr_agent_label "$id" "$agent")"
+  if _herdr_id_matches pane "$pane" "$alabel"; then
+    "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
+    "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || true
+  fi
+  if _herdr_id_matches tab "$tab" "$label"; then
+    "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1 || true
+  fi
 }
 
 _herdr_find_tab() {
@@ -127,6 +146,14 @@ _herdr_start() {
   stored_agent="$(jq -r '.agent // empty' "$tf" 2>/dev/null || true)"
   reuse_persisted=1
   [ -z "$stored_agent" ] || [ "$stored_agent" = "$agent" ] || reuse_persisted=0
+  if [ "$reuse_persisted" = 0 ]; then
+    _herdr_stop_owned "$id" "$stored_agent" \
+      "$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)" \
+      "$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+    for key in herdr_tab_id herdr_pane_id herdr_agent_session_id worker_session worker_pid worker_log; do
+      task_set "$id" "$key" "" >/dev/null
+    done
+  fi
   ws="$(_herdr_workspace "$explicit_ws")"
   tab=""
   if [ "$reuse_persisted" = 1 ]; then

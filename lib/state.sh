@@ -94,7 +94,8 @@ task_add() {
 # task_set <id> <key> <value>
 task_set() {
   require_canopy; need jq
-  local id="${1:?task id}" key="${2:?key}" val="${3:?value}" sf tf now
+  [ "$#" -ge 3 ] || die 'usage: canopy task set <id> <key> <value>'
+  local id="${1:?task id}" key="${2:?key}" val="${3}" sf tf now
   _assert_task "$id"
   sf="$(state_file)"; tf="$(task_file "$id")"; now="$(_c_ts)"
 
