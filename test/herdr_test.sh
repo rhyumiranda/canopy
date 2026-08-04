@@ -30,6 +30,9 @@ case "$1 ${2:-}" in
     [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"other-task · Claude"}}}' || case "${3:-}" in
       tab-1) printf '%s\n' '{"result":{"tab":{"label":"t1 · Claude"}}}' ;;
       tab-2) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
+      legacy-tab) printf '%s\n' '{"result":{"tab":{"label":"t7 · Claude"}}}' ;;
+      tab-partial) printf '%s\n' '{"result":{"tab":{"label":"t11 · Codex"}}}' ;;
+      tab-attach) printf '%s\n' '{"result":{"tab":{"label":"t8 · Codex"}}}' ;;
       *) printf '%s\n' '{"result":{"tab":{"label":"t4 · Claude"}}}' ;;
     esac ;;
   pane\ list)
@@ -42,6 +45,9 @@ case "$1 ${2:-}" in
     [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-other-task-claude"}}}' || case "${3:-}" in
       pane-claude) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t1-claude"}}}' ;;
       pane-codex) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t2-codex"}}}' ;;
+      legacy-pane) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t7-claude"}}}' ;;
+      pane-partial) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t11-codex"}}}' ;;
+      pane-attach) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t8-codex"}}}' ;;
       *) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t4-claude"}}}' ;;
     esac ;;
   agent\ start)
@@ -55,6 +61,9 @@ case "$1 ${2:-}" in
     fi ;;
   agent\ explain) printf '%s\n' '{"state":"working","summary":"bounded worker summary"}' ;;
   agent\ read) printf '%s\n' 'full worker context' ;;
+  agent\ attach|agent\ send) exit 0 ;;
+  pane\ close) [ "${HERDR_CLOSE_PANE_FAIL:-0}" = 1 ] && exit 7 || exit 0 ;;
+  tab\ close) [ "${HERDR_CLOSE_TAB_FAIL:-0}" = 1 ] && exit 8 || exit 0 ;;
   *) exit 0 ;;
 esac
 EOF
@@ -120,6 +129,11 @@ printf '%s\n' "$STATUS" | jq -e '.task=="t2" and .backend=="codex" and .state=="
   && ok 'worker status is bounded structured data' || bad 'worker status is not structured or bounded'
 eval "$ENV \"$CANOPY\" worker read $ID2 --lines 12 2>/dev/null" | grep -qx 'full worker context' \
   && ok 'worker read provides fuller context' || bad 'worker read missing fuller context'
+eval "$ENV \"$CANOPY\" task checkpoint $ID2 'live pane checkpoint' >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" worker resume --workspace ws-existing $ID2 >/dev/null 2>&1" \
+  && ok 'live Herdr pane resume succeeds' || bad 'live Herdr pane resume failed'
+grep -q 'agent send pane-codex Continue from checkpoint: live pane checkpoint' "$WORK/herdr.log" \
+  && ok 'live Herdr resume sends checkpoint continuation' || bad 'live Herdr resume lost checkpoint continuation'
 if eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1"; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'
@@ -181,6 +195,25 @@ eval "$ENV \"$CANOPY\" task set $ID9 herdr_tab_id legacy-tab >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID9 herdr_pane_id legacy-pane >/dev/null 2>&1"
 LEGACY_ERR="$(eval "$ENV \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID9 2>&1 >/dev/null" || true)"
 echo "$LEGACY_ERR" | grep -qi 'legacy Herdr state' && ok 'legacy Herdr state requires reconciliation' || bad 'legacy Herdr state was reused'
+eval "$ENV \"$CANOPY\" worker reconcile --agent claude $ID9 >/dev/null 2>&1" \
+  && ok 'legacy Herdr state reconciles explicitly' || bad 'legacy Herdr reconciliation failed'
+[ "$(jq -r '.herdr_tab_id + .herdr_pane_id + (.agent // "")' "$R/.canopy/tasks/$ID9.json")" = "" ] \
+  && ok 'reconciliation clears legacy identities' || bad 'reconciliation left legacy identities'
+
+ID13="$(eval "$ENV \"$CANOPY\" task add 'attach send ownership' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID13 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID13 agent codex >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID13 herdr_tab_id tab-attach >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID13 herdr_pane_id pane-attach >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" worker attach $ID13 >/dev/null 2>&1" \
+  && ok 'attach validates and calls owned Herdr pane' || bad 'attach rejected owned Herdr pane'
+eval "$ENV \"$CANOPY\" worker send $ID13 'hello worker' >/dev/null 2>&1" \
+  && ok 'send validates and calls owned Herdr pane' || bad 'send rejected owned Herdr pane'
+ATTACH_CALLS="$(grep -c 'agent attach pane-attach' "$WORK/herdr.log")"; SEND_CALLS="$(grep -c 'agent send pane-attach hello worker' "$WORK/herdr.log")"
+eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker attach $ID13 >/dev/null 2>&1" && bad 'attach used mismatched Herdr pane' || ok 'attach rejects mismatched Herdr pane'
+eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker send $ID13 'blocked' >/dev/null 2>&1" && bad 'send used mismatched Herdr pane' || ok 'send rejects mismatched Herdr pane'
+[ "$(grep -c 'agent attach pane-attach' "$WORK/herdr.log")" = "$ATTACH_CALLS" ] && ok 'attach makes no backend call after mismatch' || bad 'attach called backend after mismatch'
+[ "$(grep -c 'agent send pane-attach blocked' "$WORK/herdr.log")" = 0 ] && ok 'send makes no backend call after mismatch' || bad 'send called backend after mismatch'
 
 ID10="$(eval "$ENV \"$CANOPY\" task add 'strict stop close' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID10 worktree $R >/dev/null 2>&1"
@@ -207,6 +240,21 @@ for mode in HERDR_EMPTY_GET HERDR_MALFORMED_GET HERDR_AMBIGUOUS_GET; do
   CLOSE_ERR="$(eval "$ENV $mode=1 \"$CANOPY\" worker close $ID11 2>&1 >/dev/null" || true)"
   echo "$CLOSE_ERR" | grep -qi 'refusing to close' && ok "close rejects $mode identity" || bad "close accepted $mode identity"
 done
+
+ID14="$(eval "$ENV \"$CANOPY\" task add 'retryable close' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID14 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID14 agent codex >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID14 herdr_pane_id pane-partial >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID14 herdr_tab_id tab-partial >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task checkpoint $ID14 ready_for_review >/dev/null 2>&1"
+PARTIAL_ERR="$(eval "$ENV HERDR_CLOSE_TAB_FAIL=1 \"$CANOPY\" worker close $ID14 2>&1 >/dev/null" || true)"
+echo "$PARTIAL_ERR" | grep -qi 'close incomplete' && ok 'close reports partial Herdr failure' || bad 'close hid partial Herdr failure'
+[ "$(jq -r '.status' "$R/.canopy/tasks/$ID14.json")" != done ] && ok 'partial close leaves task retryable' || bad 'partial close marked task done'
+[ "$(jq -r '.herdr_pane_id' "$R/.canopy/tasks/$ID14.json")" = "" ] && [ "$(jq -r '.herdr_tab_id' "$R/.canopy/tasks/$ID14.json")" = tab-partial ] \
+  && ok 'partial close clears only closed pane' || bad 'partial close state is not retryable'
+eval "$ENV \"$CANOPY\" worker close $ID14 >/dev/null 2>&1" \
+  && ok 'partial close retries successfully' || bad 'partial close retry failed'
+[ "$(jq -r '.status' "$R/.canopy/tasks/$ID14.json")" = done ] && ok 'retry closes remaining Herdr tab' || bad 'retry did not finish close'
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"

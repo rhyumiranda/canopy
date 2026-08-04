@@ -123,6 +123,7 @@ canopy worker start --agent codex --workspace <id> "$id"  # Codex Herdr worker
 canopy worker start --headless "$id"                   # explicit detached worker
 canopy worker attach "$id"              # attach to its Herdr tab
 canopy worker send "$id" "status?"       # send text to its agent
+canopy worker reconcile --agent claude "$id" # clear legacy Herdr IDs after verifying old backend
 canopy worker status "$id"               # bounded JSON summary + read command
 canopy worker read "$id"                 # fuller bounded conversation/context
 canopy worker resume --agent codex "$id" # continue a Claude task in Codex
@@ -144,7 +145,7 @@ canopy status                          # the board
 | Codex skill | `$scribe` | Record a durable project fact from Codex. Installed by `canopy setup`. |
 | Codex skill | `$hotfix` | Start the urgent Canopy hotfix path from Codex. Installed by `canopy setup`. |
 
-Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
+Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly.
 
 Full CLI: `init · start · status · task · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
 
