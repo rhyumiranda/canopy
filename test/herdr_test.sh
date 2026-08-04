@@ -73,6 +73,17 @@ case "$1 ${2:-}" in
 esac
 EOF
 chmod +x "$WORK/bin/herdr"
+cat > "$WORK/bin/launchctl" <<'EOF'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >> "${LAUNCHCTL_LOG:?}"
+case "${1:-}" in
+  list) exit 1 ;;
+  bootstrap|load|bootout|remove) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$WORK/bin/launchctl"
 cat > "$WORK/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 set -eu
@@ -85,7 +96,8 @@ chmod +x "$WORK/bin/codex"
 
 R="$WORK/repo"; mkdir -p "$R"; (cd "$R" && git init -q && git config user.email t@t && git config user.name t && echo hi > f && git add f && git commit -qm init)
 cd "$R"
-ENV="HERDR_LOG=$WORK/herdr.log CODEX_ARGV_LOG=$WORK/codex.argv CODEX_STDIN_LOG=$WORK/codex.stdin PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+mkdir -p "$WORK/home"
+ENV="HOME=$WORK/home HERDR_LOG=$WORK/herdr.log LAUNCHCTL_LOG=$WORK/launchctl.log CODEX_ARGV_LOG=$WORK/codex.argv CODEX_STDIN_LOG=$WORK/codex.stdin PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
 eval "$ENV \"$CANOPY\" init >/dev/null 2>&1"
 ID="$(eval "$ENV \"$CANOPY\" task add 'interactive worker' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID brief 'do the work' >/dev/null 2>&1"
@@ -102,6 +114,10 @@ grep -q 'tab create.*--workspace ws-existing' "$WORK/herdr.log" && ok 'tab reuse
 grep -q -- 'agent start claude.*claude --dangerously-skip-permissions' "$WORK/herdr.log" && ok 'Claude adapter launches Claude' || bad 'Claude adapter argv wrong'
 grep -q -- 'agent start claude.*--dangerously-bypass-approvals-and-sandbox' "$WORK/herdr.log" && bad 'Claude adapter should not get Codex bypass' || ok 'Claude adapter unchanged'
 grep -q -- 'tab create.*--label t1 · Claude' "$WORK/herdr.log" && ok 'Claude tab label includes backend' || bad 'Claude tab label wrong'
+ls "$R/.canopy/herdr-watchers/"*.plist >/dev/null 2>&1 && ok 'Claude start writes Herdr terminal watcher plist' || bad 'Herdr terminal watcher plist missing'
+grep -q 'herdr supervise "t1" "pane-claude" "tab-1" "herdr-claude" "claude"' "$R/.canopy/herdr-watchers/"*.plist \
+  && ok 'Herdr watcher records task and pane identity' || bad 'Herdr watcher identity missing'
+grep -q 'bootstrap gui/' "$WORK/launchctl.log" && ok 'Herdr watcher is launchd armed' || bad 'Herdr watcher was not launchd armed'
 eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID >/dev/null 2>&1"
 [ "$(grep -c 'agent start claude' "$WORK/herdr.log")" = 1 ] && ok 'duplicate start does not relaunch' || bad 'duplicate worker launched'
 eval "$ENV \"$CANOPY\" task set $ID herdr_agent_session_id 'session id with spaces' >/dev/null 2>&1"

@@ -81,21 +81,24 @@ _lifecycle_init() {
 # Returns 0 only when it appended a new durable transition.
 task_lifecycle_event() {
   require_canopy; need jq
-  local id="${1:?task id}" status="${2:?status}" reason="${3:-status changed}" tf ef now checkpoint pane tab sid key exists
+  local id="${1:?task id}" status="${2:?status}" reason="${3:-status changed}" tf ef now checkpoint pane tab sid ws agent key exists
   _assert_task "$id"; _status_terminal "$status" || return 1
   tf="$(task_file "$id")"; _lifecycle_init; ef="$(lifecycle_file)"; now="$(_c_ts)"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf")"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
   tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  ws="$(jq -r '.herdr_workspace_id // empty' "$tf")"
+  agent="$(jq -r '.agent // empty' "$tf")"
   sid="$(jq -r '.herdr_agent_session_id // .worker_session // empty' "$tf")"
-  key="${id}|${status}|${pane}|${tab}|${sid}|${checkpoint}"
+  key="${id}|${status}|${pane}|${tab}|${sid}"
   exists="$(jq -r --arg key "$key" 'any(.events[]?; .key == $key)' "$ef")"
   [ "$exists" = true ] && return 1
   jq --arg key "$key" --arg id "$id" --arg status "$status" --arg reason "$reason" \
-     --arg pane "$pane" --arg tab "$tab" --arg sid "$sid" --arg checkpoint "$checkpoint" --arg now "$now" '
+     --arg ws "$ws" --arg pane "$pane" --arg tab "$tab" --arg sid "$sid" --arg agent "$agent" \
+     --arg checkpoint "$checkpoint" --arg now "$now" '
     .events += [{
       key:$key, task_id:$id, status:$status, reason:$reason,
-      pane_id:$pane, tab_id:$tab, session_id:$sid,
+      workspace_id:$ws, pane_id:$pane, tab_id:$tab, session_id:$sid, agent:$agent,
       checkpoint:$checkpoint, timestamp:$now, consumed_at:null
     }]
   ' "$ef" | write_atomic "$ef"

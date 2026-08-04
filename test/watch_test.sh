@@ -44,6 +44,17 @@ printf '%s' "$OUT" | grep -qi 'TCC' && ok "status flags the TCC/Full-Disk-Access
 # --- Layer 1: 'canopy recover' reconciles a merged PR in-session (stub gh-axi) ---
 STUB="$WORK/bin"; mkdir -p "$STUB"
 printf '#!/usr/bin/env bash\necho "state:  MERGED"\n' > "$STUB/gh-axi"; chmod +x "$STUB/gh-axi"
+cat > "$STUB/launchctl" <<'EOF'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >> "${LAUNCHCTL_LOG:-/dev/null}"
+case "${1:-}" in
+  list) exit 1 ;;
+  bootstrap|load|bootout|remove) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$STUB/launchctl"
 R2="$(new_repo)"; cd "$R2"; "$CANOPY" init >/dev/null 2>&1
 ID="$("$CANOPY" task add "shipped thing" 2>/dev/null)"
 "$CANOPY" task set "$ID" pr 1 >/dev/null
@@ -64,8 +75,8 @@ set -u
 printf '%s\n' "$*" >> "${HERDR_LOG:?}"
 case "$1 ${2:-}" in
   pane\ current) printf '%s\n' '{"result":{"pane":{"pane_id":"supervisor-pane","workspace_id":"ws-existing"}}}' ;;
-  pane\ get) [ "${3:-}" = "pane-done" ] ;;
-  agent\ explain) printf '%s\n' '{"result":{"agent":{"state":"done"}}}' ;;
+  pane\ get) [ "${HERDR_PANE_GONE:-0}" = 1 ] && exit 1; [ "${3:-}" = "pane-done" ] ;;
+  agent\ explain) printf '%s\n' '{"result":{"agent":{"state":"'"${HERDR_STATE:-done}"'"}}}' ;;
   wait\ agent-status) exit 1 ;;
   notification\ show) exit 0 ;;
   agent\ send) exit 0 ;;
@@ -98,6 +109,44 @@ START="$(date +%s)"
 PATH="$STUB:$PATH" "$CANOPY" events wait 0 >/dev/null 2>&1 && bad "wait 0 should fail when no event" || ok "wait 0 has no endless supervisor polling"
 END="$(date +%s)"
 [ $((END-START)) -le 1 ] && ok "wait 0 returns quickly" || bad "wait 0 blocked too long"
+
+for st in failed blocked; do
+  R4="$(new_repo)"; cd "$R4"; PATH="$STUB:$PATH" "$CANOPY" init >/dev/null 2>&1
+  ID4="$(PATH="$STUB:$PATH" "$CANOPY" task add "herdr $st" 2>/dev/null)"
+  PATH="$STUB:$PATH" "$CANOPY" task set "$ID4" worktree "$R4" >/dev/null
+  PATH="$STUB:$PATH" "$CANOPY" task set "$ID4" agent codex >/dev/null
+  PATH="$STUB:$PATH" "$CANOPY" task set "$ID4" herdr_workspace_id ws-existing >/dev/null
+  PATH="$STUB:$PATH" "$CANOPY" task set "$ID4" herdr_pane_id pane-done >/dev/null
+  PATH="$STUB:$PATH" "$CANOPY" task set "$ID4" herdr_tab_id tab-done >/dev/null
+  PATH="$STUB:$PATH" "$CANOPY" task set "$ID4" herdr_agent_session_id "session-$st" >/dev/null
+  PATH="$STUB:$PATH" "$CANOPY" task status "$ID4" implementing >/dev/null
+  HERDR_LOG="$WORK/herdr.log" LAUNCHCTL_LOG="$WORK/launchctl.log" HERDR_STATE="$st" CANOPY_NOTIFY=1 PATH="$STUB:$PATH" "$CANOPY" herdr supervise "$ID4" pane-done tab-done "session-$st" codex >/dev/null 2>&1
+  [ "$(jq -r '.tasks[0].status' "$R4/.canopy/state.json")" = "$st" ] && ok "Herdr supervisor marks task $st" || bad "Herdr supervisor did not mark $st"
+  [ "$(jq -r '.events[0].status' "$R4/.canopy/events/lifecycle.json")" = "$st" ] && ok "Herdr supervisor writes $st event" || bad "Herdr supervisor missing $st event"
+done
+
+R5="$(new_repo)"; cd "$R5"; PATH="$STUB:$PATH" "$CANOPY" init >/dev/null 2>&1
+ID5="$(PATH="$STUB:$PATH" "$CANOPY" task add "herdr interrupted" 2>/dev/null)"
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID5" worktree "$R5" >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID5" agent claude >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID5" herdr_pane_id pane-done >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID5" herdr_tab_id tab-done >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID5" herdr_agent_session_id session-interrupted >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task status "$ID5" implementing >/dev/null
+HERDR_LOG="$WORK/herdr.log" LAUNCHCTL_LOG="$WORK/launchctl.log" HERDR_PANE_GONE=1 CANOPY_NOTIFY=1 PATH="$STUB:$PATH" "$CANOPY" herdr supervise "$ID5" pane-done tab-done session-interrupted claude >/dev/null 2>&1
+[ "$(jq -r '.tasks[0].status' "$R5/.canopy/state.json")" = interrupted ] && ok "Herdr supervisor marks interrupted when pane disappears" || bad "Herdr supervisor did not mark interrupted"
+
+R6="$(new_repo)"; cd "$R6"; PATH="$STUB:$PATH" "$CANOPY" init >/dev/null 2>&1
+ID6="$(PATH="$STUB:$PATH" "$CANOPY" task add "stale watcher" 2>/dev/null)"
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID6" worktree "$R6" >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID6" agent codex >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID6" herdr_pane_id pane-new >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID6" herdr_tab_id tab-new >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID6" herdr_agent_session_id session-new >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task status "$ID6" implementing >/dev/null
+HERDR_LOG="$WORK/herdr.log" HERDR_PANE_GONE=1 PATH="$STUB:$PATH" "$CANOPY" herdr supervise "$ID6" pane-old tab-old session-old codex >/dev/null 2>&1
+[ "$(jq -r '.tasks[0].status' "$R6/.canopy/state.json")" = implementing ] && ok "stale Herdr supervisor does not mark interrupted" || bad "stale Herdr supervisor changed task"
+[ ! -f "$R6/.canopy/events/lifecycle.json" ] && ok "stale Herdr supervisor emits no event" || bad "stale Herdr supervisor emitted event"
 
 PATH="$STUB:$PATH" "$CANOPY" task status "$ID3" blocked >/dev/null
 OUT="$(HERDR_LOG="$WORK/herdr.log" PATH="$STUB:$PATH" HOME="$H" "$CANOPY" recover 2>/dev/null)"

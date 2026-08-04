@@ -95,6 +95,12 @@ case "$cmd" in
     esac ;;
   recover)       canopy_recover "$@" ;;
   events)        canopy_events "$@" ;;
+  herdr)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      supervise) canopy_herdr_supervise "$@" ;;
+      *)         die "unknown 'herdr' subcommand: ${sub:-<none>}" ;;
+    esac ;;
   worktree)
     sub="${1:-}"; shift || true
     case "$sub" in

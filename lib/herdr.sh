@@ -77,9 +77,10 @@ _herdr_id_matches() {
 }
 
 _herdr_stop_owned() {
-  local id="$1" agent="$2" tab="$3" pane="$4" label alabel pane_owned=0 tab_owned=0 pane_rc=0 tab_rc=0
+  local id="$1" agent="$2" tab="$3" pane="$4" label alabel sid pane_owned=0 tab_owned=0 pane_rc=0 tab_rc=0
   label="$(_herdr_tab_label "$id" "$agent")"
   alabel="$(_herdr_agent_label "$id" "$agent")"
+  sid="$(jq -r '.herdr_agent_session_id // empty' "$(task_file "$id")" 2>/dev/null || true)"
   if [ -n "$pane" ]; then
     _herdr_id_matches pane "$pane" "$alabel" || return 1
     pane_owned=1
@@ -88,6 +89,7 @@ _herdr_stop_owned() {
     _herdr_id_matches tab "$tab" "$label" || return 1
     tab_owned=1
   fi
+  _herdr_supervisor_stop "$id" "$pane" "$sid"
   if [ "$pane_owned" = 1 ]; then
     "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
     if "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1; then
@@ -147,6 +149,114 @@ _herdr_probe_state() {
     printf '%s\n' blocked; return 0
   fi
   return 1
+}
+
+_herdr_supervisor_label() {
+  local id="$1" pane="$2" sid="$3" root_hash ident_hash
+  root_hash="$(printf '%s' "$(repo_root)" | shasum | cut -c1-8)"
+  ident_hash="$(printf '%s' "${id}|${pane}|${sid}" | shasum | cut -c1-8)"
+  printf 'com.canopy.herdr.%s.%s.%s\n' "$root_hash" "$id" "$ident_hash"
+}
+
+_herdr_supervisor_plist() {
+  local id="$1" pane="$2" sid="$3"
+  printf '%s/%s.plist\n' "$(herdr_watchers_dir)" "$(_herdr_supervisor_label "$id" "$pane" "$sid")"
+}
+
+_herdr_supervisor_loaded() {
+  command -v launchctl >/dev/null 2>&1 && launchctl list "$1" >/dev/null 2>&1
+}
+
+_herdr_supervisor_stop() {
+  local id="$1" pane="$2" sid="$3" label plist
+  [ -n "$pane" ] || return 0
+  label="$(_herdr_supervisor_label "$id" "$pane" "$sid")"
+  plist="$(_herdr_supervisor_plist "$id" "$pane" "$sid")"
+  if command -v launchctl >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)" "$plist" >/dev/null 2>&1 || launchctl remove "$label" >/dev/null 2>&1 || true
+  fi
+}
+
+_herdr_supervisor_start() {
+  require_canopy; need jq
+  local id="$1" tf pane tab sid agent ws root canopy_bin herdr_bin label plist supervisor env_supervisor=""
+  command -v launchctl >/dev/null 2>&1 || { warn "Herdr terminal watcher not armed: launchctl unavailable"; return 0; }
+  tf="$(task_file "$id")"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
+  tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  sid="$(jq -r '.herdr_agent_session_id // empty' "$tf")"
+  agent="$(jq -r '.agent // empty' "$tf")"
+  ws="$(jq -r '.herdr_workspace_id // empty' "$tf")"
+  [ -n "$pane" ] && [ -n "$agent" ] || return 0
+  root="$(repo_root)"
+  canopy_bin="$CANOPY_ROOT/bin/canopy"
+  herdr_bin="$(_herdr_bin)"
+  label="$(_herdr_supervisor_label "$id" "$pane" "$sid")"
+  plist="$(_herdr_supervisor_plist "$id" "$pane" "$sid")"
+  mkdir -p "$(herdr_watchers_dir)"
+  supervisor="$(_watch_supervisor_pane || true)"
+  if [ -n "$supervisor" ]; then
+    env_supervisor="<key>CANOPY_SUPERVISOR_PANE</key><string>$(printf '%s' "$supervisor" | _xml_escape)</string>"
+  fi
+  cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string><string>-lc</string>
+    <string>cd "${root}" &amp;&amp; CANOPY_HERDR_BIN="${herdr_bin}" "${canopy_bin}" herdr supervise "${id}" "${pane}" "${tab}" "${sid}" "${agent}"</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>CANOPY_NOTIFY</key><string>1</string>${env_supervisor}</dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>${root}/.canopy/watch.log</string>
+  <key>StandardOutPath</key><string>${root}/.canopy/watch.log</string>
+</dict>
+</plist>
+EOF
+  if ! _herdr_supervisor_loaded "$label"; then
+    launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1 || launchctl load "$plist" >/dev/null 2>&1 || warn "could not arm Herdr terminal watcher for $id"
+  fi
+  task_set "$id" herdr_supervisor_label "$label" >/dev/null
+  task_log "$id" "armed Herdr terminal watcher for pane $pane"
+}
+
+_herdr_supervisor_identity_matches() {
+  local id="$1" pane="$2" tab="$3" sid="$4" agent="$5" tf saved_pane saved_tab saved_sid saved_agent
+  tf="$(task_file "$id")"
+  saved_pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
+  saved_tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  saved_sid="$(jq -r '.herdr_agent_session_id // empty' "$tf")"
+  saved_agent="$(jq -r '.agent // empty' "$tf")"
+  [ "$saved_pane" = "$pane" ] || return 1
+  [ -z "$tab" ] || [ "$saved_tab" = "$tab" ] || return 1
+  [ -z "$sid" ] || [ "$saved_sid" = "$sid" ] || return 1
+  [ -z "$agent" ] || [ "$saved_agent" = "$agent" ] || return 1
+}
+
+canopy_herdr_supervise() {
+  require_canopy; need jq; _herdr_need
+  local id="${1:?task id}" pane="${2:?pane id}" tab="${3:-}" sid="${4:-}" agent="${5:-}" tf status current
+  _assert_task "$id"; tf="$(task_file "$id")"
+  _herdr_supervisor_identity_matches "$id" "$pane" "$tab" "$sid" "$agent" || return 0
+  while :; do
+    _herdr_supervisor_identity_matches "$id" "$pane" "$tab" "$sid" "$agent" || return 0
+    status="$(_herdr_probe_state "$pane" || true)"
+    if _status_terminal "$status"; then
+      current="$(jq -r '.status' "$tf")"
+      [ "$current" = "$status" ] || task_set "$id" status "$status" >/dev/null
+      if task_lifecycle_event "$id" "$status" "Herdr worker reported $status" >/dev/null; then
+        _notify "task $id $status"
+        task_log "$id" "Herdr lifecycle event queued: $status"
+      fi
+      _herdr_supervisor_stop "$id" "$pane" "$sid"
+      return 0
+    fi
+    sleep "${CANOPY_HERDR_WATCH_INTERVAL:-5}"
+  done
 }
 
 canopy_herdr_watch_once() {
@@ -271,6 +381,7 @@ _herdr_start() {
     fi
     task_status "$id" implementing >/dev/null
     _herdr_report "$id" working "reused existing Herdr worker"
+    _herdr_supervisor_start "$id"
     printf '%s\n' "$pane"; return 0
   fi
   prompt="$(_worker_prompt "$id" "$title" "$brief")"
@@ -297,6 +408,7 @@ Continue from the checkpoint; do not restart."
   task_status "$id" implementing >/dev/null
   task_log "$id" "started interactive $agent worker in Herdr workspace $ws, tab $tab, pane $pane"
   _herdr_report "$id" working "interactive worker started"
+  _herdr_supervisor_start "$id"
   printf '%s\n' "$pane"
 }
 
@@ -412,7 +524,7 @@ canopy_worker_read() {
 }
 
 _herdr_worker_stop() {
-  local ref="${1:?task id}" tf pane tab agent
+  local ref="${1:?task id}" tf pane tab agent sid
   tf="$(task_file "$ref")"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
   tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
@@ -424,6 +536,8 @@ _herdr_worker_stop() {
   [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$ref" "$agent")" \
     || die "task $ref Herdr tab identity does not match; refusing to stop it"
   if [ -n "$pane" ]; then
+    sid="$(jq -r '.herdr_agent_session_id // empty' "$tf")"
+    _herdr_supervisor_stop "$ref" "$pane" "$sid"
     "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
     _herdr_report "$ref" idle "interactive worker stopped"
   fi
@@ -491,6 +605,7 @@ canopy_worker_close() {
   ( cd "$path" && canopy_checks_run ) || die "task $id checks failed"
   local pane_rc=0 tab_rc=0
   if [ -n "$pane" ]; then
+    _herdr_supervisor_stop "$id" "$pane" "$(jq -r '.herdr_agent_session_id // empty' "$tf")"
     "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || pane_rc=$?
     [ "$pane_rc" -eq 0 ] && task_set "$id" herdr_pane_id "" >/dev/null
   fi
