@@ -12,14 +12,22 @@ _herdr_tab_label() {
   printf '%s · %s\n' "$1" "$backend"
 }
 
-_herdr_json_id() {
-  jq -r 'if type == "object" then (.id // .workspace_id // .tab_id // .pane_id // .agent_session_id // .session_id // empty) else . end' 2>/dev/null || true
+_herdr_tab_id() {
+  jq -r 'if type == "object" then (.result.tab.tab_id // .result.tab.id // .result.tab_id // .tab_id // empty) else . end' 2>/dev/null || true
+}
+
+_herdr_pane_id() {
+  jq -r 'if type == "object" then (.result.pane.pane_id // .result.pane.id // .result.pane_id // .pane_id // empty) else . end' 2>/dev/null || true
+}
+
+_herdr_agent_session_id() {
+  jq -r 'if type == "object" then (.result.agent_session_id // .result.session_id // .result.thread_id // .agent_session_id // .session_id // .thread_id // empty) else empty end' 2>/dev/null || true
 }
 
 _herdr_context_workspace() {
   local out ws
   out="$($(_herdr_bin) pane current --current 2>/dev/null || true)"
-  ws="$(printf '%s\n' "$out" | jq -r '.workspace_id // .workspace.id // .tab.workspace_id // .tab.workspace.id // empty' 2>/dev/null || true)"
+  ws="$(printf '%s\n' "$out" | jq -r '.result.pane.workspace_id // .result.pane.workspace.id // .result.pane.tab.workspace_id // .result.pane.tab.workspace.id // .result.workspace_id // .workspace_id // .workspace.id // .tab.workspace_id // .tab.workspace.id // empty' 2>/dev/null || true)"
   [ -n "$ws" ] && printf '%s\n' "$ws"
 }
 
@@ -82,9 +90,12 @@ _herdr_launch_claude() {
 
 _herdr_launch_codex() {
   local id="$1" path="$2" tab="$3" prompt="$4"
-  printf '%s' "$prompt" | "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
-    codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" \
-    -C "$path" exec --json -
+  local -a codex_args
+  codex_args=(-s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -C "$path")
+  _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
+  "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
+    bash -c 'prompt="$1"; shift; printf "%s" "$prompt" | exec codex "$@" exec --json -' \
+    canopy-codex "$prompt" "${codex_args[@]}"
 }
 
 _herdr_launch() {
@@ -98,7 +109,7 @@ _herdr_launch() {
 
 _herdr_start() {
   require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief ws tab pane sid out label alabel stored_agent reuse_persisted
+  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief checkpoint ws tab pane sid out label alabel stored_agent reuse_persisted
   _assert_task "$id"; agent="$(_canopy_agent_validate "$agent")"; tf="$(task_file "$id")"
   path="$(jq -r '.worktree // empty' "$tf")"
   [ -d "$path" ] || die "task $id has no leased worktree"
@@ -115,7 +126,7 @@ _herdr_start() {
   fi
   [ -n "$tab" ] || tab="$(_herdr_find_tab "$ws" "$label")"
   if [ -z "$tab" ]; then
-    tab="$($(_herdr_bin) tab create --workspace "$ws" --cwd "$path" --label "$label" --no-focus 2>/dev/null | _herdr_json_id)"
+    tab="$($(_herdr_bin) tab create --workspace "$ws" --cwd "$path" --label "$label" --no-focus 2>/dev/null | _herdr_tab_id)"
     [ -n "$tab" ] || die "Herdr did not return a tab id"
   fi
   task_set "$id" herdr_workspace_id "$ws" >/dev/null
@@ -133,12 +144,21 @@ _herdr_start() {
     printf '%s\n' "$pane"; return 0
   fi
   prompt="$(_worker_prompt "$id" "$title" "$brief")"
+  checkpoint="$(jq -r '.checkpoint.note // empty' "$tf" 2>/dev/null || true)"
+  if [ "$agent" = codex ] && [ -n "$checkpoint" ]; then
+    prompt="$prompt
+
+Last checkpoint:
+${checkpoint}
+
+Continue from the checkpoint; do not restart."
+  fi
   out="$(_herdr_launch "$agent" "$id" "$path" "$tab" "$prompt" 2>&1)" || {
     die "could not start $agent in Herdr"
   }
-  pane="$(printf '%s\n' "$out" | _herdr_json_id | head -1)"
+  pane="$(printf '%s\n' "$out" | _herdr_pane_id | head -1)"
   [ -n "$pane" ] || die "Herdr did not return a pane id"
-  sid="$(printf '%s\n' "$out" | jq -r '.agent_session_id // .session_id // .thread_id // empty' 2>/dev/null || true)"
+  sid="$(printf '%s\n' "$out" | _herdr_agent_session_id | head -1)"
   task_set "$id" agent "$agent" >/dev/null
   task_set "$id" herdr_workspace_id "$ws" >/dev/null
   task_set "$id" herdr_tab_id "$tab" >/dev/null

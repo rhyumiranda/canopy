@@ -137,6 +137,7 @@ _review_once_claude() {
 
 _review_once_codex() {
   local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out schema msgf prompt model
+  local -a codex_args
   base="$(git -C "$wt" merge-base HEAD "$(_default_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
   head="$(git -C "$wt" rev-parse HEAD)"
   if [ -z "$base" ] || [ "$base" = "$head" ]; then
@@ -149,7 +150,9 @@ _review_once_codex() {
   _review_schema > "$schema"
   prompt="$(_review_prompt "$base" "$head" "$intent" "$prov" "$diff")"
   model="$(_reviewer_model_for codex)"
-  if ! out="$( cd "$wt" && printf '%s' "$prompt" | codex -s read-only -a never -C "$wt" -m "$model" \
+  codex_args=(-s read-only -C "$wt" -m "$model")
+  _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
+  if ! out="$( cd "$wt" && printf '%s' "$prompt" | codex "${codex_args[@]}" \
       exec --output-schema "$schema" -o "$msgf" - 2>&1 )"; then
     rm -f "$schema" "$msgf"
     die "codex reviewer failed: ${out:-unknown error}"
