@@ -32,7 +32,8 @@ case "$1 ${2:-}" in
       tab-2) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
       *) printf '%s\n' '{"result":{"tab":{"label":"t4 · Claude"}}}' ;;
     esac ;;
-  pane\ list) printf '%s\n' '[]' ;;
+  pane\ list)
+    [ "${HERDR_FOUND_PANE:-0}" = 1 ] && printf '%s\n' '{"result":{"panes":[{"pane_id":"pane-found","agent":"canopy-t8-codex"}]}}' || printf '%s\n' '[]' ;;
   pane\ get)
     [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1
     [ "${HERDR_EMPTY_GET:-0}" = 1 ] && exit 0
@@ -142,6 +143,14 @@ eval "$ENV \"$CANOPY\" task set $ID4 herdr_pane_id pane-stale >/dev/null 2>&1"
 eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID4 >/dev/null 2>&1" \
   && ok 'mismatched persisted Herdr identity relaunches' || bad 'mismatched Herdr identity was reused'
 
+ID12="$(eval "$ENV \"$CANOPY\" task add 'unsafe backend switch' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID12 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID12 agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID12 herdr_tab_id tab-old >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID12 herdr_pane_id pane-old >/dev/null 2>&1"
+SWITCH_ERR="$(eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID12 2>&1 >/dev/null" || true)"
+echo "$SWITCH_ERR" | grep -qi 'reconciled safely' && ok 'unsafe backend switch requires reconciliation' || bad 'unsafe backend switch launched'
+
 ID5="$(eval "$ENV \"$CANOPY\" task add 'strict identity' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID5 worktree $R >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID5 agent claude >/dev/null 2>&1"
@@ -158,6 +167,45 @@ for mode in HERDR_MALFORMED_GET HERDR_AMBIGUOUS_GET; do
   else
     ok "$mode Herdr identity is rejected"
   fi
+done
+
+ID8="$(eval "$ENV \"$CANOPY\" task add 'reuse backend identity' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID8 worktree $R >/dev/null 2>&1"
+eval "$ENV HERDR_FOUND_PANE=1 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID8 >/dev/null 2>&1" \
+  && ok 'matching discovered pane reuses' || bad 'matching discovered pane did not reuse'
+[ "$(jq -r .agent "$R/.canopy/tasks/$ID8.json")" = codex ] && ok 'reused pane persists requested backend' || bad 'reused pane lost requested backend'
+
+ID9="$(eval "$ENV \"$CANOPY\" task add 'legacy herdr state' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID9 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID9 herdr_tab_id legacy-tab >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID9 herdr_pane_id legacy-pane >/dev/null 2>&1"
+LEGACY_ERR="$(eval "$ENV \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID9 2>&1 >/dev/null" || true)"
+echo "$LEGACY_ERR" | grep -qi 'legacy Herdr state' && ok 'legacy Herdr state requires reconciliation' || bad 'legacy Herdr state was reused'
+
+ID10="$(eval "$ENV \"$CANOPY\" task add 'strict stop close' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID10 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID10 agent codex >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID10 herdr_pane_id pane-stop >/dev/null 2>&1"
+STOP_ERR="$(eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker stop $ID10 2>&1 >/dev/null" || true)"
+echo "$STOP_ERR" | grep -qi 'refusing to stop' && ok 'stop rejects mismatched pane identity' || bad 'stop used mismatched pane'
+if grep -q 'pane send-keys pane-stop' "$WORK/herdr.log"; then bad 'stop sent keys to mismatched pane'; else ok 'stop did not mutate mismatched pane'; fi
+for mode in HERDR_EMPTY_GET HERDR_MALFORMED_GET HERDR_AMBIGUOUS_GET; do
+  STOP_ERR="$(eval "$ENV $mode=1 \"$CANOPY\" worker stop $ID10 2>&1 >/dev/null" || true)"
+  echo "$STOP_ERR" | grep -qi 'refusing to stop' && ok "stop rejects $mode identity" || bad "stop accepted $mode identity"
+done
+
+ID11="$(eval "$ENV \"$CANOPY\" task add 'strict close' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID11 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID11 agent codex >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID11 herdr_pane_id pane-close >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID11 herdr_tab_id tab-close >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task checkpoint $ID11 ready_for_review >/dev/null 2>&1"
+CLOSE_ERR="$(eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker close $ID11 2>&1 >/dev/null" || true)"
+echo "$CLOSE_ERR" | grep -qi 'refusing to close' && ok 'close rejects mismatched Herdr identity' || bad 'close used mismatched Herdr identity'
+if grep -qE 'pane close pane-close|tab close tab-close' "$WORK/herdr.log"; then bad 'close mutated mismatched Herdr object'; else ok 'close did not mutate mismatched Herdr object'; fi
+for mode in HERDR_EMPTY_GET HERDR_MALFORMED_GET HERDR_AMBIGUOUS_GET; do
+  CLOSE_ERR="$(eval "$ENV $mode=1 \"$CANOPY\" worker close $ID11 2>&1 >/dev/null" || true)"
+  echo "$CLOSE_ERR" | grep -qi 'refusing to close' && ok "close rejects $mode identity" || bad "close accepted $mode identity"
 done
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
