@@ -95,6 +95,13 @@ printf '%s' "$OUT2" | jq -e '.risk_level=="low"' >/dev/null 2>&1 && ok "codex re
 [ "$(grep -o -- '--dangerously-bypass-approvals-and-sandbox' "$ARGV_LOG" | wc -l | tr -d ' ')" = 1 ] && ok "codex review has one bypass flag" || bad "codex review bypass count wrong"
 case " $(cat "$ARGV_LOG") " in *" -a "*|*" --ask-for-approval "*) bad "codex review should not pass approval flag" ;; *) ok "codex review omits conflicting approval flag" ;; esac
 
+ID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex "$CANOPY" task add 'default codex worker' 2>/dev/null)"
+( cd "$R" && "$CANOPY" task set "$ID2" worktree "$R" >/dev/null 2>&1 )
+SID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker start --headless "$ID2" 2>/dev/null)"
+[ "$SID2" = "codex-session-123" ] && ok "headless start follows Codex orchestrator" || bad "headless start did not use Codex"
+[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID2.json")" = codex ] && ok "headless start records Codex backend" || bad "headless start backend missing"
+( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID2" >/dev/null 2>&1 )
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

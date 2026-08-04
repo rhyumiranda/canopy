@@ -104,7 +104,7 @@ canopy start --codex                   # opens Codex AS the orchestrator
 
 `canopy start` is the whole point: it launches Claude Code with the orchestrator playbook loaded, reads `.canopy/`, recovers any in-flight work, and then just waits for your intent — you tell it what you want, it drives the rest. (`canopy init` alone only makes the repo ready; `start` is what makes Claude know what to do.)
 
-`canopy start --codex` keeps the same Canopy loop, but it does **not** replace the live steerable Claude worker panes you use for hands-on implementation. That stays the default worker path. Codex support is additive on the headless surfaces: repo-local hooks under `.codex/hooks.json`, detached `canopy worker spawn --agent codex`, detached `canopy worker fix --agent codex`, and `canopy review --agent codex`.
+`canopy start --codex` defaults unspecified workers to interactive Codex panes in an existing Herdr workspace. Claude remains the default when Claude is the orchestrator. Use `--agent claude` to choose a backend, or explicit `--headless`/`worker spawn` for detached work. Canopy never creates a Herdr workspace; pass `--workspace <id>` when discovery cannot use the current pane.
 
 Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. The detached `worker spawn` path remains available for both Claude and Codex.
 
@@ -119,10 +119,13 @@ canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + re
                                        # (via `canopy start`, workers are steerable in-session
                                        #  Claude panes instead; `worker spawn` is the detached path)
 canopy worker start --agent claude --workspace <id> "$id" # Herdr tab worker (existing workspace)
+canopy worker start --agent codex --workspace <id> "$id"  # Codex Herdr worker
+canopy worker start --headless "$id"                   # explicit detached worker
 canopy worker attach "$id"              # attach to its Herdr tab
 canopy worker send "$id" "status?"       # send text to its agent
-canopy worker status "$id"               # show Herdr agent status
-canopy worker resume "$id"              # reuse the persisted Herdr tab
+canopy worker status "$id"               # bounded JSON summary + read command
+canopy worker read "$id"                 # fuller bounded conversation/context
+canopy worker resume --agent codex "$id" # continue a Claude task in Codex
 canopy worker close "$id"               # requires ready_for_review + passing checks
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer

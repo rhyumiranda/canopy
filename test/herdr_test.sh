@@ -23,9 +23,12 @@ case "$1 ${2:-}" in
     printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-current","result":{"pane":{"pane_id":"current-pane","workspace_id":"ws-existing"}}}' ;;
   tab\ list) printf '%s\n' '[]' ;;
   tab\ create) printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-tab","result":{"tab":{"tab_id":"tab-'"${HERDR_TAB_N:-1}"'"}}}' ;;
-  tab\ get) exit 0 ;;
+  tab\ get)
+    [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"other-task · Claude"}}}' || exit 0 ;;
   pane\ list) printf '%s\n' '[]' ;;
-  pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || exit 0 ;;
+  pane\ get)
+    [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1
+    [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-other-task-claude"}}}' || exit 0 ;;
   agent\ start)
     if [ "${3:-}" = codex ]; then
       while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
@@ -35,7 +38,8 @@ case "$1 ${2:-}" in
     else
       printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-claude","result":{"pane":{"pane_id":"pane-claude"},"agent_session_id":"herdr-claude"}}'
     fi ;;
-  agent\ explain) printf '%s\n' '{"state":"working"}' ;;
+  agent\ explain) printf '%s\n' '{"state":"working","summary":"bounded worker summary"}' ;;
+  agent\ read) printf '%s\n' 'full worker context' ;;
   *) exit 0 ;;
 esac
 EOF
@@ -96,14 +100,30 @@ printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr resum
 grep -q 'Task t2: codex worker' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has task title' || bad 'Codex Herdr resume stdin missing title'
 grep -q 'do codex work' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has brief' || bad 'Codex Herdr resume stdin missing brief'
 grep -q 'route added, tests next' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has checkpoint' || bad 'Codex Herdr resume stdin missing checkpoint'
+STATUS="$(eval "$ENV \"$CANOPY\" worker status $ID2 2>/dev/null")"
+printf '%s\n' "$STATUS" | jq -e '.task=="t2" and .backend=="codex" and .state=="working" and .summary=="bounded worker summary" and .full_context=="canopy worker read t2"' >/dev/null \
+  && ok 'worker status is bounded structured data' || bad 'worker status is not structured or bounded'
+eval "$ENV \"$CANOPY\" worker read $ID2 --lines 12 2>/dev/null" | grep -qx 'full worker context' \
+  && ok 'worker read provides fuller context' || bad 'worker read missing fuller context'
 if eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1"; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'
 [ "$(jq -r .status "$TF2")" = done ] && ok 'close marks task done' || bad 'task not done'
 
-eval "$ENV HERDR_TAB_N=3 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID >/dev/null 2>&1" && ok 'backend switch launches new Herdr pane' || bad 'backend switch failed'
+eval "$ENV \"$CANOPY\" task checkpoint $ID 'continue in Codex' >/dev/null 2>&1"
+eval "$ENV HERDR_TAB_N=3 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID >/dev/null 2>&1" && ok 'Claude task resumes through Codex' || bad 'Claude-to-Codex resume failed'
 [ "$(jq -r .herdr_pane_id "$TF")" = pane-codex ] && ok 'backend switch replaces persisted pane' || bad 'backend switch reused old pane'
 [ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = 3 ] && ok 'backend switch starts requested backend' || bad 'backend switch did not start Codex'
+grep -q 'continue in Codex' "$WORK/codex.stdin" && ok 'Claude-to-Codex resume carries checkpoint' || bad 'Claude-to-Codex resume lost checkpoint'
+
+ID4="$(eval "$ENV \"$CANOPY\" task add 'identity check' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID4 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID4 agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID4 herdr_workspace_id ws-existing >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID4 herdr_tab_id tab-stale >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID4 herdr_pane_id pane-stale >/dev/null 2>&1"
+eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID4 >/dev/null 2>&1" \
+  && ok 'mismatched persisted Herdr identity relaunches' || bad 'mismatched Herdr identity was reused'
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"
