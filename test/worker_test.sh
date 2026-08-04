@@ -77,6 +77,17 @@ PID="$(jq -r '.worker_pid' "$R/.canopy/tasks/$ID.json")"
 kill -0 "$PID" >/dev/null 2>&1 && ok "task records live worker pid" || bad "worker pid not live"
 OUT="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker logs "$ID" 2>/dev/null)"
 printf '%s' "$(cat "$LOGF")" | grep -q 'thread.started' && ok "worker log captures codex jsonl" || bad "worker log missing jsonl"
+( cd "$R" && STOP_CALLS="$WORK/stop.calls" CANOPY_ROOT="$CANOPY_ROOT" SID="$SID" PID="$PID" bash -c '
+    set -euo pipefail
+    . "$CANOPY_ROOT/lib/common.sh"
+    . "$CANOPY_ROOT/lib/state.sh"
+    . "$CANOPY_ROOT/lib/agent.sh"
+    . "$CANOPY_ROOT/lib/worker.sh"
+    . "$CANOPY_ROOT/lib/herdr.sh"
+    kill() { printf "%s\\n" "$*" >> "$STOP_CALLS"; return 0; }
+    _canopy_worker_stop_headless "$SID"
+  ' )
+grep -q "$PID" "$WORK/stop.calls" && ok "worker stop by session id reaches worker" || { cat "$WORK/stop.calls" >&2; bad "worker stop by session id did not reach worker"; }
 ( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID" >/dev/null 2>&1 )
 ok "worker stop command succeeds"
 
@@ -94,6 +105,21 @@ printf '%s' "$OUT2" | jq -e '.verdict=="clean"' >/dev/null 2>&1 && ok "codex rev
 printf '%s' "$OUT2" | jq -e '.risk_level=="low"' >/dev/null 2>&1 && ok "codex review helper returns risk" || bad "codex review helper missing risk"
 [ "$(grep -o -- '--dangerously-bypass-approvals-and-sandbox' "$ARGV_LOG" | wc -l | tr -d ' ')" = 1 ] && ok "codex review has one bypass flag" || bad "codex review bypass count wrong"
 case " $(cat "$ARGV_LOG") " in *" -a "*|*" --ask-for-approval "*) bad "codex review should not pass approval flag" ;; *) ok "codex review omits conflicting approval flag" ;; esac
+
+ID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex "$CANOPY" task add 'default codex worker' 2>/dev/null)"
+( cd "$R" && "$CANOPY" task set "$ID2" worktree "$R" >/dev/null 2>&1 )
+SID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker start --headless "$ID2" 2>/dev/null)"
+[ "$SID2" = "codex-session-123" ] && ok "headless start follows Codex orchestrator" || bad "headless start did not use Codex"
+[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID2.json")" = codex ] && ok "headless start records Codex backend" || bad "headless start backend missing"
+( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID2" >/dev/null 2>&1 )
+
+ID3="$(cd "$R" && "$CANOPY" task add 'recorded backend wins' 2>/dev/null)"
+( cd "$R" && "$CANOPY" task set "$ID3" worktree "$R" >/dev/null 2>&1 )
+( cd "$R" && "$CANOPY" task set "$ID3" agent codex >/dev/null 2>&1 )
+SID3="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=claude CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker start --headless "$ID3" 2>/dev/null)"
+[ "$SID3" = "codex-session-123" ] && ok "headless start prefers recorded task backend" || bad "headless start used orchestrator backend"
+[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID3.json")" = codex ] && ok "headless start preserves recorded backend" || bad "headless start changed recorded backend"
+( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID3" >/dev/null 2>&1 )
 
 echo
 echo "== $PASS passed, $FAIL failed =="

@@ -44,8 +44,8 @@ done
 printf '\n' >> "${HERDR_LOG:?}"
 case "$1 ${2:-}" in
   workspace\ get) [ "${3:-}" = ws-existing ] ;;
-  tab\ get) exit 0 ;;
-  pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || exit 0 ;;
+  tab\ get) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
+  pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || printf '%s\n' '{"result":{"pane":{"agent":"canopy-t2-codex"}}}' ;;
   pane\ list) printf '%s\n' '[]' ;;
   agent\ start)
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
@@ -87,6 +87,16 @@ CODEX_RESUME_LINE="$(tail -1 "$WORK/codex.argv")"
 printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad "Herdr recover Codex resume should not pass approval flag" || ok "Herdr recover Codex resume omits approval flag"
 grep -q "fresh review fix next" "$WORK/codex.stdin" && ok "Herdr recover Codex resume includes checkpoint" || bad "Herdr recover Codex resume missing checkpoint"
 
+IDLEG="$($CANOPY task add "legacy Herdr recovery" 2>/dev/null)"
+$CANOPY task set "$IDLEG" worktree "$R" >/dev/null
+$CANOPY task set "$IDLEG" herdr_workspace_id ws-existing >/dev/null
+$CANOPY task set "$IDLEG" herdr_tab_id legacy-tab >/dev/null
+$CANOPY task set "$IDLEG" herdr_pane_id legacy-pane >/dev/null
+$CANOPY task status "$IDLEG" implementing >/dev/null
+BRIEFLEG="$($CANOPY recover "$IDLEG" 2>/dev/null)"
+echo "$BRIEFLEG" | grep -q "canopy worker reconcile --agent <claude|codex> $IDLEG" \
+  && ok "legacy Herdr recovery gives reconciliation command" || bad "legacy Herdr recovery missing reconciliation command"
+
 # a done task is NOT recoverable
 ID2="$("$CANOPY" task add "old task" 2>/dev/null)"
 "$CANOPY" task status "$ID2" done >/dev/null
@@ -95,6 +105,7 @@ ID2="$("$CANOPY" task add "old task" 2>/dev/null)"
 # nothing-in-flight case
 ( cd "$R" && "$CANOPY" task status "$ID" done >/dev/null )
 ( cd "$R" && "$CANOPY" task status "$IDH" done >/dev/null )
+( cd "$R" && "$CANOPY" task status "$IDLEG" done >/dev/null )
 OUT="$("$CANOPY" recover 2>&1)"
 echo "$OUT" | grep -qi "nothing in flight" && ok "recover clean when nothing in flight" || bad "recover should report nothing in flight"
 

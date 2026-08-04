@@ -32,15 +32,22 @@ _herdr_context_workspace() {
 }
 
 _herdr_workspace() {
-  local explicit="${1:-}" sf ws
+  local explicit="${1:-}" task_ws="${2:-}" sf ws
   sf="$(_herdr_state_file)"
   ws="$explicit"
-  [ -n "$ws" ] || ws="${CANOPY_HERDR_WORKSPACE:-}"
-  [ -n "$ws" ] || ws="$(jq -r '.workspace_id // empty' "$sf" 2>/dev/null || true)"
   if [ -n "$ws" ] && "$(_herdr_bin)" workspace get "$ws" >/dev/null 2>&1; then
     printf '%s\n' "$ws"; return 0
   fi
   [ -z "$explicit" ] || die "Herdr workspace not found: $explicit"
+  ws="$task_ws"
+  if [ -n "$ws" ] && "$(_herdr_bin)" workspace get "$ws" >/dev/null 2>&1; then
+    printf '%s\n' "$ws"; return 0
+  fi
+  ws="${CANOPY_HERDR_WORKSPACE:-}"
+  [ -n "$ws" ] || ws="$(jq -r '.workspace_id // empty' "$sf" 2>/dev/null || true)"
+  if [ -n "$ws" ] && "$(_herdr_bin)" workspace get "$ws" >/dev/null 2>&1; then
+    printf '%s\n' "$ws"; return 0
+  fi
   ws="$(_herdr_context_workspace)"
   [ -n "$ws" ] || die "no existing Herdr workspace context; pass --workspace <workspace-id>"
   "$(_herdr_bin)" workspace get "$ws" >/dev/null 2>&1 || die "Herdr workspace not found: $ws"
@@ -52,6 +59,54 @@ _herdr_workspace() {
 _herdr_id_alive() {
   local kind="$1" id="$2"
   [ -n "$id" ] && "$(_herdr_bin)" "$kind" get "$id" >/dev/null 2>&1
+}
+
+_herdr_id_matches() {
+  local kind="$1" id="$2" expected="$3" out labels
+  [ -n "$id" ] || return 1
+  out="$($(_herdr_bin) "$kind" get "$id" 2>/dev/null || true)"
+  [ -n "$out" ] || return 1
+  labels="$(printf '%s\n' "$out" | jq -er --arg kind "$kind" '
+    [.. | objects |
+      (if $kind == "tab" then (.label? // .name? // empty)
+       else (.agent? // .label? // .name? // empty) end)
+      | select(type == "string" and length > 0)]
+    | if length == 1 then .[0] else empty end
+  ' 2>/dev/null || true)"
+  [ -n "$labels" ] && [ "$labels" = "$expected" ]
+}
+
+_herdr_stop_owned() {
+  local id="$1" agent="$2" tab="$3" pane="$4" label alabel pane_owned=0 tab_owned=0 pane_rc=0 tab_rc=0
+  label="$(_herdr_tab_label "$id" "$agent")"
+  alabel="$(_herdr_agent_label "$id" "$agent")"
+  if [ -n "$pane" ]; then
+    _herdr_id_matches pane "$pane" "$alabel" || return 1
+    pane_owned=1
+  fi
+  if [ -n "$tab" ]; then
+    _herdr_id_matches tab "$tab" "$label" || return 1
+    tab_owned=1
+  fi
+  if [ "$pane_owned" = 1 ]; then
+    "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
+    if "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1; then
+      task_set "$id" herdr_pane_id "" >/dev/null
+    else
+      pane_rc=$?
+    fi
+  fi
+  if [ "$tab_owned" = 1 ]; then
+    if "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1; then
+      task_set "$id" herdr_tab_id "" >/dev/null
+    else
+      tab_rc=$?
+    fi
+  fi
+  if [ "$pane_rc" -ne 0 ] || [ "$tab_rc" -ne 0 ]; then
+    warn "task $id Herdr cleanup incomplete: pane close rc=$pane_rc, tab close rc=$tab_rc; failed IDs preserved; retry"
+    return 1
+  fi
 }
 
 _herdr_find_tab() {
@@ -70,6 +125,7 @@ _herdr_find_pane() {
 
 _herdr_report() {
   local id="$1" state="$2" message="${3:-}" tf pane agent sid label
+  local -a report_args
   tf="$(task_file "$id")"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
   [ -n "$pane" ] || return 0
@@ -77,9 +133,13 @@ _herdr_report() {
   sid="$(jq -r '.herdr_agent_session_id // empty' "$tf" 2>/dev/null || true)"
   label="$(_herdr_agent_label "$id" "$agent")"
   # Older Herdr versions have no status hook; lifecycle must still work there.
-  "$(_herdr_bin)" pane report-agent "$pane" --source "canopy:$id" --agent "$label" \
-    --state "$state" ${message:+--message "$message"} ${sid:+--agent-session-id "$sid"} \
-    >/dev/null 2>&1 || true
+  report_args=("$(_herdr_bin)" pane report-agent "$pane" --source "canopy:$id" --agent "$label" --state "$state")
+  [ -z "$message" ] || report_args+=(--message "$message")
+  [ -z "$sid" ] || report_args+=(--agent-session-id "$sid")
+  "${report_args[@]}" >/dev/null 2>&1 || {
+    warn "task $id Herdr status report failed; worker state changed to $state but Herdr was not updated"
+    return 1
+  }
 }
 
 _herdr_launch_claude() {
@@ -109,20 +169,34 @@ _herdr_launch() {
 
 _herdr_start() {
   require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" tf path title brief checkpoint ws tab pane sid out label alabel stored_agent reuse_persisted
+  local id="${1:?task id}" agent="${2:-$(canopy_task_agent "$1")}" explicit_ws="${3:-}" resuming="${4:-0}" tf path title brief checkpoint task_ws ws tab pane sid out label alabel stored_agent reuse_persisted legacy_tab legacy_pane
   _assert_task "$id"; agent="$(_canopy_agent_validate "$agent")"; tf="$(task_file "$id")"
   path="$(jq -r '.worktree // empty' "$tf")"
   [ -d "$path" ] || die "task $id has no leased worktree"
   title="$(jq -r '.title' "$tf")"; brief="$(jq -r '.brief // ""' "$tf")"
+  task_ws="$(jq -r '.herdr_workspace_id // empty' "$tf" 2>/dev/null || true)"
   label="$(_herdr_tab_label "$id" "$agent")"; alabel="$(_herdr_agent_label "$id" "$agent")"
   stored_agent="$(jq -r '.agent // empty' "$tf" 2>/dev/null || true)"
+  legacy_tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+  legacy_pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+  if [ -z "$stored_agent" ] && { [ -n "$legacy_tab" ] || [ -n "$legacy_pane" ]; }; then
+    die "task $id has legacy Herdr state without backend identity; run 'canopy worker reconcile --agent <old-backend> $id' first"
+  fi
   reuse_persisted=1
   [ -z "$stored_agent" ] || [ "$stored_agent" = "$agent" ] || reuse_persisted=0
-  ws="$(_herdr_workspace "$explicit_ws")"
+  if [ "$reuse_persisted" = 0 ]; then
+    _herdr_stop_owned "$id" "$stored_agent" \
+      "$legacy_tab" "$legacy_pane" \
+      || die "task $id Herdr state could not be reconciled safely; verify the old pane/tab before switching backends"
+    for key in herdr_tab_id herdr_pane_id herdr_agent_session_id worker_session worker_pid worker_log; do
+      task_set "$id" "$key" "" >/dev/null
+    done
+  fi
+  ws="$(_herdr_workspace "$explicit_ws" "$task_ws")"
   tab=""
   if [ "$reuse_persisted" = 1 ]; then
     tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
-    _herdr_id_alive tab "$tab" || tab=""
+    _herdr_id_matches tab "$tab" "$label" || tab=""
   fi
   [ -n "$tab" ] || tab="$(_herdr_find_tab "$ws" "$label")"
   if [ -z "$tab" ]; then
@@ -134,18 +208,27 @@ _herdr_start() {
   pane=""
   if [ "$reuse_persisted" = 1 ]; then
     pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
-    _herdr_id_alive pane "$pane" || pane=""
+    _herdr_id_matches pane "$pane" "$alabel" || pane=""
   fi
   [ -n "$pane" ] || pane="$(_herdr_find_pane "$ws" "$alabel")"
   if [ -n "$pane" ]; then
+    task_set "$id" agent "$agent" >/dev/null
     task_set "$id" herdr_pane_id "$pane" >/dev/null
+    if [ "$resuming" = 1 ]; then
+      checkpoint="$(jq -r '.checkpoint.note // empty' "$tf" 2>/dev/null || true)"
+      if [ -n "$checkpoint" ]; then
+        "$(_herdr_bin)" agent send "$pane" "Continue from checkpoint: $checkpoint" \
+          || die "task $id could not deliver its checkpoint to the live Herdr pane"
+        task_log "$id" "delivered checkpoint to reused Herdr pane $pane"
+      fi
+    fi
     task_status "$id" implementing >/dev/null
     _herdr_report "$id" working "reused existing Herdr worker"
     printf '%s\n' "$pane"; return 0
   fi
   prompt="$(_worker_prompt "$id" "$title" "$brief")"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf" 2>/dev/null || true)"
-  if [ "$agent" = codex ] && [ -n "$checkpoint" ]; then
+  if [ -n "$checkpoint" ]; then
     prompt="$prompt
 
 Last checkpoint:
@@ -171,105 +254,207 @@ Continue from the checkpoint; do not restart."
 }
 
 canopy_worker_start() {
-  local agent="" id="" workspace=""
+  local agent="" id="" workspace="" headless=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
       --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || die '--workspace needs a workspace id' ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] <id>'; return 0 ;;
+      --headless) headless=1 ;;
+      -h|--help) printf '%s\n' 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <id>'; return 0 ;;
       -*) die "unknown worker start option: $1" ;;
       *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker start [--agent claude|codex] <id>'; break ;;
     esac
     shift
   done
-  [ -n "$id" ] || die 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] <id>'
+  [ -n "$id" ] || die 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <id>'
+  if [ "$headless" = 1 ]; then
+    [ -z "$workspace" ] || die '--workspace is only valid for interactive Herdr workers'
+    agent="${agent:-$(canopy_task_agent "$id")}"
+    canopy_worker_spawn --agent "$agent" "$id"
+    return
+  fi
   _herdr_start "$id" "${agent:-$(canopy_task_agent "$id")}" "$workspace"
 }
 
 canopy_worker_attach() {
-  require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" target; _assert_task "$id"
-  target="$(jq -r '.herdr_pane_id // .herdr_tab_id // empty' "$(task_file "$id")")"
-  [ -n "$target" ] || die "task $id has no Herdr worker"
+  require_canopy; need jq
+  local id="${1:?task id}" tf pane tab agent target; _assert_task "$id"; tf="$(task_file "$id")"
+  agent="$(jq -r '.agent // empty' "$tf")"
+  [ -n "$agent" ] || die "task $id has no Herdr backend identity; reconcile legacy state first"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  [ -n "$pane" ] || [ -n "$tab" ] || die "task $id has no Herdr worker"
+  _herdr_need
+  [ -z "$pane" ] || _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$agent")" \
+    || die "task $id Herdr pane identity does not match; refusing to attach"
+  [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$id" "$agent")" \
+    || die "task $id Herdr tab identity does not match; refusing to attach"
+  target="${pane:-$tab}"
   "$(_herdr_bin)" agent attach "$target" --takeover
 }
 
 canopy_worker_send() {
-  require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" text="${*:2}" pane; _assert_task "$id"
+  require_canopy; need jq
+  local id="${1:?task id}" text="${*:2}" tf pane tab agent; _assert_task "$id"; tf="$(task_file "$id")"
   [ -n "$text" ] || die 'usage: canopy worker send <id> <text>'
-  pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")"
+  agent="$(jq -r '.agent // empty' "$tf")"
+  [ -n "$agent" ] || die "task $id has no Herdr backend identity; reconcile legacy state first"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
   [ -n "$pane" ] || die "task $id has no Herdr worker"
+  _herdr_need
+  _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$agent")" \
+    || die "task $id Herdr pane identity does not match; refusing to send"
+  [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$id" "$agent")" \
+    || die "task $id Herdr tab identity does not match; refusing to send"
   "$(_herdr_bin)" agent send "$pane" "$text"
   task_log "$id" "sent message to Herdr pane $pane"
 }
 
 canopy_worker_status() {
-  require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" pane; _assert_task "$id"
-  pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")"
-  [ -n "$pane" ] || die "task $id has no Herdr worker"
-  "$(_herdr_bin)" agent explain "$pane" --json 2>/dev/null || "$(_herdr_bin)" agent read "$pane" --lines 20
+  require_canopy; need jq
+  local id="${1:?task id}" tf pane tab explain state summary agent context; _assert_task "$id"
+  tf="$(task_file "$id")"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  if [ -z "$(jq -r '.agent // empty' "$tf")" ] && { [ -n "$pane" ] || [ -n "$tab" ]; }; then
+    die "task $id has legacy Herdr state without backend identity; run 'canopy worker reconcile --agent <old-backend> $id' first"
+  fi
+  agent="$(canopy_task_agent "$id")"
+  explain=""
+  if [ -n "$pane" ]; then
+    _herdr_need
+    _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$agent")" || pane=""
+  fi
+  if [ -n "$pane" ]; then
+    explain="$($(_herdr_bin) agent explain "$pane" --json 2>/dev/null || true)"
+  fi
+  state="$(printf '%s\n' "$explain" | jq -r '.. | objects | (.state // .status // empty)' 2>/dev/null | head -1)"
+  summary="$(printf '%s\n' "$explain" | jq -r '.. | objects | (.summary // .message // empty)' 2>/dev/null | head -1)"
+  [ -n "$state" ] || state="unknown"
+  [ -n "$summary" ] || summary="no summary available"
+  context="canopy worker read $id"
+  jq -cn --arg task "$id" --arg backend "$agent" --arg state "$state" \
+    --arg summary "$summary" --arg workspace "$(jq -r '.herdr_workspace_id // empty' "$tf")" \
+    --arg tab "$(jq -r '.herdr_tab_id // empty' "$tf")" --arg pane "$pane" \
+    --arg checkpoint "$(jq -r '.checkpoint.note // empty' "$tf")" --arg context "$context" \
+    '{task:$task,backend:$backend,state:$state,summary:$summary,workspace:$workspace,tab:$tab,pane:$pane,checkpoint:$checkpoint,full_context:$context}'
 }
 
-canopy_worker_stop() {
-  local ref="${1:?worker id or session}" tf pane
-  tf="$(task_file "$ref" 2>/dev/null || true)"
-  if [ -f "$tf" ] && pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)" && [ -n "$pane" ]; then
+canopy_worker_read() {
+  require_canopy; need jq
+  local id="${1:?task id}" lines=80 pane tab agent logf; _assert_task "$id"
+  case "${2:-}" in
+    --lines) lines="${3:-}"; [ "$lines" -ge 1 ] 2>/dev/null && [ "$lines" -le 120 ] 2>/dev/null || die '--lines must be 1..120' ;;
+    "") ;;
+    *) die 'usage: canopy worker read <id> [--lines <1..120>]' ;;
+  esac
+  pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")"
+  tab="$(jq -r '.herdr_tab_id // empty' "$(task_file "$id")")"
+  if [ -z "$(jq -r '.agent // empty' "$(task_file "$id")")" ] && { [ -n "$pane" ] || [ -n "$tab" ]; }; then
+    die "task $id has legacy Herdr state without backend identity; run 'canopy worker reconcile --agent <old-backend> $id' first"
+  fi
+  if [ -n "$pane" ]; then
     _herdr_need
+    agent="$(canopy_task_agent "$id")"
+    _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$agent")" \
+      || die "task $id Herdr pane identity does not match"
+    "$(_herdr_bin)" agent read "$pane" --lines "$lines"
+    return
+  fi
+  logf="$(jq -r '.worker_log // empty' "$(task_file "$id")")"
+  [ -n "$logf" ] && [ -f "$logf" ] || die "task $id has no readable worker context"
+  tail -n "$lines" "$logf"
+}
+
+_herdr_worker_stop() {
+  local ref="${1:?task id}" tf pane tab agent
+  tf="$(task_file "$ref")"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
+  tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  agent="$(jq -r '.agent // empty' "$tf")"
+  [ -n "$agent" ] || die "task $ref has legacy Herdr state without backend identity; reconcile before stopping"
+  _herdr_need
+  [ -z "$pane" ] || _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$ref" "$agent")" \
+    || die "task $ref Herdr pane identity does not match; refusing to stop it"
+  [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$ref" "$agent")" \
+    || die "task $ref Herdr tab identity does not match; refusing to stop it"
+  if [ -n "$pane" ]; then
     "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
     _herdr_report "$ref" idle "interactive worker stopped"
-    task_log "$ref" "stopped Herdr worker pane $pane"
-    return 0
   fi
-  _canopy_worker_stop_headless "$@"
-}
-
-_canopy_worker_stop_headless() {
-  local ref="$1" sid="$ref" id="" agent="" pid=""
-  require_canopy; need jq
-  if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then id="$ref"; else id="$(_find_task_by_worker_session "$ref" || true)"; fi
-  if [ -n "$id" ]; then
-    sid="$(jq -r '.worker_session // empty' "$(task_file "$id")")"
-    pid="$(jq -r '.worker_pid // empty' "$(task_file "$id")")"
-    agent="$(canopy_task_agent "$id")"
-  fi
-  [ -n "$sid" ] || return 0
-  if [ "$agent" = codex ]; then
-    [ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
-  else
-    need claude; claude stop "$sid" >/dev/null 2>&1 || true
-  fi
+  task_log "$ref" "stopped Herdr worker${pane:+ pane $pane}${tab:+ in tab $tab}"
 }
 
 canopy_worker_resume() {
-  local id="" workspace=""
+  local id="" workspace="" agent=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || die '--workspace needs a workspace id' ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker resume [--workspace <id>] <id>'; return 0 ;;
+      --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
+      -h|--help) printf '%s\n' 'usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <id>'; return 0 ;;
       -*) die "unknown worker resume option: $1" ;;
       *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker resume [--workspace <id>] <id>'; break ;;
     esac
     shift
   done
-  [ -n "$id" ] || die 'usage: canopy worker resume [--workspace <id>] <id>'
+  [ -n "$id" ] || die 'usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <id>'
   _assert_task "$id"
-  _herdr_start "$id" "$(canopy_task_agent "$id")" "$workspace"
+  _herdr_start "$id" "${agent:-$(canopy_task_agent "$id")}" "$workspace" 1
   _herdr_report "$id" working "interactive worker resumed"
+}
+
+canopy_worker_reconcile() {
+  require_canopy; need jq; _herdr_need
+  local id="" agent="" tf tab pane
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
+      -h|--help) printf '%s\n' 'usage: canopy worker reconcile --agent claude|codex <id>'; return 0 ;;
+      -*) die "unknown worker reconcile option: $1" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker reconcile --agent claude|codex <id>'; break ;;
+    esac
+    shift
+  done
+  [ -n "$id" ] && [ -n "$agent" ] || die 'usage: canopy worker reconcile --agent claude|codex <id>'
+  _assert_task "$id"; tf="$(task_file "$id")"
+  tab="$(jq -r '.herdr_tab_id // empty' "$tf")"; pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
+  [ -n "$tab" ] || [ -n "$pane" ] || die "task $id has no legacy Herdr IDs to reconcile"
+  _herdr_stop_owned "$id" "$agent" "$tab" "$pane" \
+    || die "task $id legacy Herdr IDs could not be verified; inspect Herdr and retry"
+  for key in herdr_tab_id herdr_pane_id herdr_agent_session_id worker_session worker_pid worker_log agent; do
+    task_set "$id" "$key" "" >/dev/null
+  done
+  task_log "$id" "reconciled legacy Herdr state for $agent"
+  info "task $id legacy Herdr state cleared; resume with an explicit --agent"
 }
 
 canopy_worker_close() {
   require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" tf checkpoint path pane tab; _assert_task "$id"; tf="$(task_file "$id")"
+  local id="${1:?task id}" tf checkpoint path pane tab agent; _assert_task "$id"; tf="$(task_file "$id")"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf")"
   [ "$checkpoint" = ready_for_review ] || die "task $id is not ready_for_review"
   path="$(jq -r '.worktree // empty' "$tf")"
   [ -d "$path" ] || die "task $id has no leased worktree"
-  ( cd "$path" && canopy_checks_run ) || die "task $id checks failed"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
-  [ -n "$pane" ] && "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || true
-  [ -n "$tab" ] && "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1 || true
+  agent="$(jq -r '.agent // empty' "$tf")"
+  [ -n "$agent" ] || die "task $id has no Herdr backend identity"
+  [ -n "$pane" ] || [ -n "$tab" ] || die "task $id has no closable Herdr pane or tab"
+  [ -z "$pane" ] || _herdr_id_matches pane "$pane" "$(_herdr_agent_label "$id" "$agent")" \
+    || die "task $id Herdr pane identity does not match; refusing to close it"
+  [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$id" "$agent")" \
+    || die "task $id Herdr tab identity does not match; refusing to close it"
+  ( cd "$path" && canopy_checks_run ) || die "task $id checks failed"
+  local pane_rc=0 tab_rc=0
+  if [ -n "$pane" ]; then
+    "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || pane_rc=$?
+    [ "$pane_rc" -eq 0 ] && task_set "$id" herdr_pane_id "" >/dev/null
+  fi
+  if [ -n "$tab" ]; then
+    "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1 || tab_rc=$?
+    [ "$tab_rc" -eq 0 ] && task_set "$id" herdr_tab_id "" >/dev/null
+  fi
+  if [ "$pane_rc" -ne 0 ] || [ "$tab_rc" -ne 0 ]; then
+    task_log "$id" "Herdr close incomplete: pane_rc=$pane_rc tab_rc=$tab_rc; retry close"
+    die "task $id Herdr close incomplete (pane=$pane_rc tab=$tab_rc); retry 'canopy worker close $id'"
+  fi
   task_status "$id" done >/dev/null
   task_log "$id" "closed Herdr worker after ready_for_review and passing checks"
 }

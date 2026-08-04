@@ -198,7 +198,27 @@ canopy_worker_logs() {
 # canopy worker stop <id|sid>
 canopy_worker_stop() {
   require_canopy; need jq
-  local ref="${1:?worker id or session}" sid="$ref" id="" agent="" pid=""
+  local ref sid id="" agent="" pid="" tf pane tab
+  ref="${1:?worker id or session}"
+  tf="$(task_file "$ref" 2>/dev/null || true)"
+  if [ -f "$tf" ]; then
+    pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+    tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+    if [ -n "$pane" ] || [ -n "$tab" ]; then
+      if declare -F _herdr_worker_stop >/dev/null 2>&1; then
+        _herdr_worker_stop "$ref"
+        return 0
+      fi
+      die "task $ref has Herdr state but interactive support is unavailable"
+    fi
+  fi
+  _canopy_worker_stop_headless "$@"
+}
+
+_canopy_worker_stop_headless() {
+  local ref sid id="" agent="" pid=""
+  ref="${1:?worker id or session}"
+  sid="$ref"
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then
     id="$ref"
   else
@@ -216,11 +236,17 @@ canopy_worker_stop() {
       claude stop "$sid" >/dev/null 2>&1 || true
       ;;
     codex)
-      if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
-        kill "$pid" >/dev/null 2>&1 || true
-        sleep 1
-        kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" >/dev/null 2>&1 || true
-      fi
+      _canopy_stop_pid "$pid"
       ;;
   esac
+}
+
+_canopy_stop_pid() {
+  local pid="${1:-}"
+  [ -n "$pid" ] || return 0
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" >/dev/null 2>&1 || true
+  fi
 }

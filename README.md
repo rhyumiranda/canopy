@@ -104,7 +104,7 @@ canopy start --codex                   # opens Codex AS the orchestrator
 
 `canopy start` is the whole point: it launches Claude Code with the orchestrator playbook loaded, reads `.canopy/`, recovers any in-flight work, and then just waits for your intent — you tell it what you want, it drives the rest. (`canopy init` alone only makes the repo ready; `start` is what makes Claude know what to do.)
 
-`canopy start --codex` keeps the same Canopy loop, but it does **not** replace the live steerable Claude worker panes you use for hands-on implementation. That stays the default worker path. Codex support is additive on the headless surfaces: repo-local hooks under `.codex/hooks.json`, detached `canopy worker spawn --agent codex`, detached `canopy worker fix --agent codex`, and `canopy review --agent codex`.
+`canopy start --codex` defaults unspecified workers to interactive Codex panes in an existing Herdr workspace. Claude remains the default when Claude is the orchestrator. Use `--agent claude` to choose a backend, or explicit `--headless`/`worker spawn` for detached work. Canopy never creates a Herdr workspace; pass `--workspace <id>` when discovery cannot use the current pane.
 
 Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. The detached `worker spawn` path remains available for both Claude and Codex.
 
@@ -114,15 +114,19 @@ id=$(canopy task add "add a /health endpoint")
 canopy task set "$id" brief "adds GET /health returning 200"   # the What
 canopy task set "$id" why   "the load balancer needs a liveness probe"
 canopy worktree lease "$id"            # isolated worktree + feature branch
-canopy worker spawn "$id"              # detached Claude worker: implement -> document -> checks -> commit
-canopy worker spawn --agent codex "$id" # detached Codex worker (jsonl logs + resumable session id)
-                                       # (via `canopy start`, workers are steerable in-session
-                                       #  Claude panes instead; `worker spawn` is the detached path)
+canopy worker spawn "$id"              # detached worker using the orchestrator's runtime
+canopy worker spawn --agent codex "$id" # explicitly detached Codex worker (jsonl + resumable session)
+                                       # (via `canopy start`, workers are steerable Herdr panes;
+                                       #  `worker spawn` is the explicit detached path)
 canopy worker start --agent claude --workspace <id> "$id" # Herdr tab worker (existing workspace)
+canopy worker start --agent codex --workspace <id> "$id"  # Codex Herdr worker
+canopy worker start --headless "$id"                   # detached worker; uses recorded task backend when present
 canopy worker attach "$id"              # attach to its Herdr tab
 canopy worker send "$id" "status?"       # send text to its agent
-canopy worker status "$id"               # show Herdr agent status
-canopy worker resume "$id"              # reuse the persisted Herdr tab
+canopy worker reconcile --agent claude "$id" # clear legacy Herdr IDs after verifying old backend
+canopy worker status "$id"               # bounded JSON summary + read command
+canopy worker read "$id"                 # fuller bounded conversation/context
+canopy worker resume --agent codex "$id" # continue a Claude task in Codex; reuses its saved Herdr workspace
 canopy worker close "$id"               # requires ready_for_review + passing checks
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
@@ -141,7 +145,7 @@ canopy status                          # the board
 | Codex skill | `$scribe` | Record a durable project fact from Codex. Installed by `canopy setup`. |
 | Codex skill | `$hotfix` | Start the urgent Canopy hotfix path from Codex. Installed by `canopy setup`. |
 
-Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart.
+Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart. Herdr resume uses an explicit `--workspace` first, then the task's saved `herdr_workspace_id`, then normal global/current discovery. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly. `worker status` and `worker read` reject legacy Herdr IDs until that reconciliation records a backend.
 
 Full CLI: `init · start · status · task · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
 
