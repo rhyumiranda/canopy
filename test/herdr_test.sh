@@ -27,6 +27,7 @@ case "$1 ${2:-}" in
     [ "${HERDR_EMPTY_GET:-0}" = 1 ] && exit 0
     [ "${HERDR_MALFORMED_GET:-0}" = 1 ] && printf '%s\n' '{' && exit 0
     [ "${HERDR_AMBIGUOUS_GET:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"t1 · Claude"},"label":"other"}}' && exit 0
+    [ -n "${HERDR_EXPECTED_TASK:-}" ] && printf '%s\n' '{"result":{"tab":{"label":"'"${HERDR_EXPECTED_TASK}"' · Claude"}}}' && exit 0
     [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"tab":{"label":"other-task · Claude"}}}' || case "${3:-}" in
       tab-1) printf '%s\n' '{"result":{"tab":{"label":"t1 · Claude"}}}' ;;
       tab-2) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
@@ -42,6 +43,7 @@ case "$1 ${2:-}" in
     [ "${HERDR_EMPTY_GET:-0}" = 1 ] && exit 0
     [ "${HERDR_MALFORMED_GET:-0}" = 1 ] && printf '%s\n' '{' && exit 0
     [ "${HERDR_AMBIGUOUS_GET:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-t1-claude"},"agent":"other"}}' && exit 0
+    [ -n "${HERDR_EXPECTED_TASK:-}" ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-'"${HERDR_EXPECTED_TASK}"'-claude"}}}' && exit 0
     [ "${HERDR_MISMATCH:-0}" = 1 ] && printf '%s\n' '{"result":{"pane":{"agent":"canopy-other-task-claude"}}}' || case "${3:-}" in
       pane-claude) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t1-claude"}}}' ;;
       pane-codex) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t2-codex"}}}' ;;
@@ -255,6 +257,28 @@ echo "$PARTIAL_ERR" | grep -qi 'close incomplete' && ok 'close reports partial H
 eval "$ENV \"$CANOPY\" worker close $ID14 >/dev/null 2>&1" \
   && ok 'partial close retries successfully' || bad 'partial close retry failed'
 [ "$(jq -r '.status' "$R/.canopy/tasks/$ID14.json")" = done ] && ok 'retry closes remaining Herdr tab' || bad 'retry did not finish close'
+
+ID15="$(eval "$ENV \"$CANOPY\" task add 'failed backend cleanup' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID15 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID15 agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID15 herdr_tab_id tab-old-cleanup >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID15 herdr_pane_id pane-old-cleanup >/dev/null 2>&1"
+SWITCH_STARTS="$(grep -c 'agent start codex' "$WORK/herdr.log")"
+SWITCH_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID15 HERDR_CLOSE_TAB_FAIL=1 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID15 2>&1 >/dev/null" || true)"
+echo "$SWITCH_ERR" | grep -qi 'cleanup incomplete' && ok 'backend switch reports failed cleanup' || bad 'backend switch hid failed cleanup'
+[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID15.json")" = tab-old-cleanuppane-old-cleanup ] \
+  && ok 'backend switch preserves IDs after cleanup failure' || bad 'backend switch cleared IDs after cleanup failure'
+[ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = "$SWITCH_STARTS" ] \
+  && ok 'backend switch does not launch after cleanup failure' || bad 'backend switch launched after cleanup failure'
+
+ID16="$(eval "$ENV \"$CANOPY\" task add 'failed legacy cleanup' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID16 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID16 herdr_tab_id legacy-tab >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID16 herdr_pane_id legacy-pane >/dev/null 2>&1"
+RECON_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID16 HERDR_CLOSE_PANE_FAIL=1 \"$CANOPY\" worker reconcile --agent claude $ID16 2>&1 >/dev/null" || true)"
+echo "$RECON_ERR" | grep -qi 'cleanup incomplete' && ok 'legacy reconciliation reports failed cleanup' || bad 'legacy reconciliation hid failed cleanup'
+[ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID16.json")" = legacy-tablegacy-pane ] \
+  && ok 'legacy reconciliation preserves IDs after cleanup failure' || bad 'legacy reconciliation cleared IDs after cleanup failure'
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"

@@ -198,7 +198,9 @@ canopy_worker_logs() {
 # canopy worker stop <id|sid>
 canopy_worker_stop() {
   require_canopy; need jq
-  local ref="${1:?worker id or session}" sid="$ref" id="" agent="" pid=""
+  local ref sid id="" agent="" pid=""
+  ref="${1:?worker id or session}"
+  sid="$ref"
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then
     id="$ref"
   else

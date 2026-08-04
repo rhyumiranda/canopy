@@ -70,21 +70,27 @@ _herdr_id_matches() {
 }
 
 _herdr_stop_owned() {
-  local id="$1" agent="$2" tab="$3" pane="$4" label alabel
+  local id="$1" agent="$2" tab="$3" pane="$4" label alabel pane_owned=0 tab_owned=0 pane_rc=0 tab_rc=0
   label="$(_herdr_tab_label "$id" "$agent")"
   alabel="$(_herdr_agent_label "$id" "$agent")"
-  if [ -n "$pane" ] && ! _herdr_id_matches pane "$pane" "$alabel"; then
-    return 1
+  if [ -n "$pane" ]; then
+    _herdr_id_matches pane "$pane" "$alabel" || return 1
+    pane_owned=1
   fi
-  if [ -n "$tab" ] && ! _herdr_id_matches tab "$tab" "$label"; then
-    return 1
+  if [ -n "$tab" ]; then
+    _herdr_id_matches tab "$tab" "$label" || return 1
+    tab_owned=1
   fi
-  if _herdr_id_matches pane "$pane" "$alabel"; then
+  if [ "$pane_owned" = 1 ]; then
     "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
-    "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || true
+    "$(_herdr_bin)" pane close "$pane" >/dev/null 2>&1 || pane_rc=$?
   fi
-  if _herdr_id_matches tab "$tab" "$label"; then
-    "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1 || true
+  if [ "$tab_owned" = 1 ]; then
+    "$(_herdr_bin)" tab close "$tab" >/dev/null 2>&1 || tab_rc=$?
+  fi
+  if [ "$pane_rc" -ne 0 ] || [ "$tab_rc" -ne 0 ]; then
+    warn "task $id Herdr cleanup incomplete: pane close rc=$pane_rc, tab close rc=$tab_rc; persisted IDs preserved; retry"
+    return 1
   fi
 }
 
@@ -345,7 +351,9 @@ canopy_worker_stop() {
 }
 
 _canopy_worker_stop_headless() {
-  local ref="$1" sid="$ref" id="" agent="" pid=""
+  local ref sid id="" agent="" pid=""
+  ref="${1:?worker id or session}"
+  sid="$ref"
   require_canopy; need jq
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then id="$ref"; else id="$(_find_task_by_worker_session "$ref" || true)"; fi
   if [ -n "$id" ]; then

@@ -77,6 +77,17 @@ PID="$(jq -r '.worker_pid' "$R/.canopy/tasks/$ID.json")"
 kill -0 "$PID" >/dev/null 2>&1 && ok "task records live worker pid" || bad "worker pid not live"
 OUT="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker logs "$ID" 2>/dev/null)"
 printf '%s' "$(cat "$LOGF")" | grep -q 'thread.started' && ok "worker log captures codex jsonl" || bad "worker log missing jsonl"
+( cd "$R" && STOP_CALLS="$WORK/stop.calls" CANOPY_ROOT="$CANOPY_ROOT" SID="$SID" PID="$PID" bash -c '
+    set -euo pipefail
+    . "$CANOPY_ROOT/lib/common.sh"
+    . "$CANOPY_ROOT/lib/state.sh"
+    . "$CANOPY_ROOT/lib/agent.sh"
+    . "$CANOPY_ROOT/lib/worker.sh"
+    . "$CANOPY_ROOT/lib/herdr.sh"
+    kill() { printf "%s\\n" "$*" >> "$STOP_CALLS"; return 0; }
+    _canopy_worker_stop_headless "$SID"
+  ' )
+grep -q "$PID" "$WORK/stop.calls" && ok "worker stop by session id reaches worker" || { cat "$WORK/stop.calls" >&2; bad "worker stop by session id did not reach worker"; }
 ( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID" >/dev/null 2>&1 )
 ok "worker stop command succeeds"
 
