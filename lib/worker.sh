@@ -197,9 +197,20 @@ canopy_worker_logs() {
 
 # canopy worker stop <id|sid>
 canopy_worker_stop() {
+  local ref=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help stop; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker stop'" "valid flags: --help. usage: canopy worker stop <task-id|session-id>" ;;
+      *) ref="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker stop <task-id|session-id>"; break ;;
+    esac
+    shift
+  done
+  if [ -z "$ref" ] && [ "$#" -gt 0 ]; then ref="$1"; fi
+  [ -n "$ref" ] || usage_error "missing task-id or session-id" "usage: canopy worker stop <task-id|session-id>"
   require_canopy; need jq
-  local ref sid id="" agent="" pid="" tf pane tab
-  ref="${1:?worker id or session}"
+  local sid id="" agent="" pid="" tf pane tab
   tf="$(task_file "$ref" 2>/dev/null || true)"
   if [ -f "$tf" ]; then
     pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
@@ -207,12 +218,14 @@ canopy_worker_stop() {
     if [ -n "$pane" ] || [ -n "$tab" ]; then
       if declare -F _herdr_worker_stop >/dev/null 2>&1; then
         _herdr_worker_stop "$ref"
+        toon_obj task "$ref" pane "${pane:--}" stopped ok
         return 0
       fi
       die "task $ref has Herdr state but interactive support is unavailable"
     fi
   fi
-  _canopy_worker_stop_headless "$@"
+  _canopy_worker_stop_headless "$ref"
+  toon_obj worker "$ref" stopped ok
 }
 
 _canopy_worker_stop_headless() {

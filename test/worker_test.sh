@@ -91,6 +91,18 @@ grep -q "$PID" "$WORK/stop.calls" && ok "worker stop by session id reaches worke
 ( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID" >/dev/null 2>&1 )
 ok "worker stop command succeeds"
 
+# AXI ergonomics on the shared 'stop' command (headless path)
+SH="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop --help 2>/dev/null)"; SHRC=$?
+{ [ "$SHRC" = 0 ] && printf '%s' "$SH" | grep -q 'usage: canopy worker stop'; } \
+  && ok "worker stop --help prints usage on stdout" || bad "worker stop --help failed (rc=$SHRC)"
+UF="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop --bogus x 2>/dev/null)"; UFRC=$?
+[ "$UFRC" = 2 ] && ok "worker stop rejects unknown flag (exit 2)" || bad "worker stop unknown flag exit $UFRC"
+printf '%s' "$UF" | grep -q '^error: unknown flag --bogus' && ok "worker stop unknown flag structured error on stdout" || bad "worker stop unknown flag not structured"
+SO="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID" 2>/dev/null)"; SORC=$?
+[ "$SORC" = 0 ] && ok "worker stop is idempotent (exit 0)" || bad "worker stop idempotent exit $SORC"
+printf '%s' "$SO" | grep -q '^stopped: ok' && ok "worker stop emits structured confirmation on stdout" || bad "worker stop missing confirmation"
+printf '%s' "$SO" | grep -q '\[canopy\]' && bad "worker stop leaked logs to stdout" || ok "worker stop keeps stdout clean"
+
 : > "$ARGV_LOG"
 FIX_SID="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ARGV_LOG="$ARGV_LOG" "$CANOPY" worker fix --agent codex "$ID" "fix it" 2>/dev/null)"
 [ "$FIX_SID" = "codex-session-123" ] && ok "codex worker fix resumes session" || bad "unexpected codex fix session id: $FIX_SID"
