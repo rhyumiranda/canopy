@@ -26,9 +26,24 @@ _default_branch() {
 # commits and hands the reviewer the wrong scope. Falls back to HEAD~1 when the
 # base branch isn't reachable. Both reviewer paths share this so they can't
 # diverge on base resolution (they once did — the codex path still said main).
+#
+# Fetch the base from origin FIRST and merge-base against the fetched remote tip
+# (FETCH_HEAD), never the LOCAL base ref. A linked worktree's local base ref is
+# frozen at pool-creation time and drifts behind remote merges; diffing against it
+# counts every already-merged commit as new, inflating the diff to thousands of
+# lines and forcing risk_level:high on a tiny change (the t26 false alarm). Offline-
+# safe: if the fetch fails (no network / no origin), fall back to the local ref and
+# warn — a possibly-stale diff beats aborting the review.
 _review_base() {
-  local wt="$1"
-  git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null \
+  local wt="$1" base base_ref
+  base="$(base_branch "$wt")"
+  if git -C "$wt" fetch -q origin "$base" 2>/dev/null; then
+    base_ref="FETCH_HEAD"          # the CURRENT remote base tip
+  else
+    warn "review: could not fetch origin/$base — diffing against the local base ref (may be stale)"
+    base_ref="$base"
+  fi
+  git -C "$wt" merge-base HEAD "$base_ref" 2>/dev/null \
     || git -C "$wt" rev-parse HEAD~1 2>/dev/null \
     || echo ''
 }
