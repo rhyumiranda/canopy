@@ -2,12 +2,13 @@
 # PreToolUse(Bash) hook — block opening a PR directly with gh/gh-axi. Every PR
 # must go through `canopy pr open`, which renders the ONE standard PR body and
 # enforces the review + checks gate; a direct `gh pr create` bypasses both and is
-# how PR formats drift. Only active when CANOPY_ROLE=orchestrator (the PR-opener).
+# how PR formats drift. Active for the orchestrator (the PR-opener) AND workers
+# (who must never open a PR at all — the orchestrator ships via `canopy pr open`).
 #
 # Exit 0 = allow; Exit 2 = block (stderr shown to the model). Reads the tool call
 # JSON on stdin ({ tool_name, tool_input:{ command } }).
 set -euo pipefail
-[ "${CANOPY_ROLE:-}" = "orchestrator" ] || exit 0
+case "${CANOPY_ROLE:-}" in orchestrator|worker) ;; *) exit 0 ;; esac
 command -v jq >/dev/null 2>&1 || exit 0
 
 input="$(cat)"

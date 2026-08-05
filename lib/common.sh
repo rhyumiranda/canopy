@@ -68,6 +68,42 @@ require_canopy() {
   [ -f "$(state_file)" ] || die "no .canopy/ here — run 'canopy init' first"
 }
 
+# --- worker role guard ------------------------------------------------------
+# A leased worker worktree shares the MAIN repo's git-common-dir, so repo_root()
+# (hence canopy_dir/state_file/task_file) resolves to the LIVE orchestrator
+# .canopy tree even when the worker runs `canopy` from inside its own worktree.
+# If a worker runs a state-mutating orchestrator command — because its task is
+# ABOUT canopy, or a stray verify/test step shells out to `canopy` — it clobbers
+# the orchestrator's own board and Herdr identity. Observed: a worker nulled its
+# task's herdr_pane_id/herdr_tab_id/worker_session, so the orchestrator lost the
+# worker, got no terminal event, and silently stalled. Workers are launched with
+# CANOPY_ROLE=worker (see lib/herdr.sh + lib/worker.sh); under that role this
+# refuses the orchestrator-owned commands while still allowing a worker's own
+# read/verify/checkpoint commands.
+#
+# _worker_cmd_allowed <cmd> <sub>  -> 0 if a worker may run it, 1 otherwise.
+# Worker-safe = reads + verify + its own progress notes. `task checkpoint`/`show`
+# touch only the worker's own detail file (checkpoint note + log), never the
+# board or Herdr identity, so the orchestrator's tracking stays intact and
+# checkpoint-based resume keeps working.
+_worker_cmd_allowed() {
+  case "$1" in
+    checks|status|events|scribe|version|-v|--version|help|-h|--help|"") return 0 ;;
+    task) case "$2" in checkpoint|show) return 0 ;; *) return 1 ;; esac ;;
+    *) return 1 ;;
+  esac
+}
+
+# canopy_role_guard <cmd> <sub> — die on an orchestrator-only command under a
+# worker role. No-op for the orchestrator (or a plain shell) so existing use is
+# unaffected. Called once from bin/canopy before dispatch.
+canopy_role_guard() {
+  [ "${CANOPY_ROLE:-}" = worker ] || return 0
+  local cmd="${1:-}" sub="${2:-}"
+  _worker_cmd_allowed "$cmd" "$sub" && return 0
+  die "canopy '${cmd}${sub:+ $sub}' is orchestrator-only and refused under CANOPY_ROLE=worker: a worker shares the orchestrator's .canopy state via git-common-dir and must not mutate its board or tasks. A worker may run: checks, task checkpoint, task show, status, events, scribe, version."
+}
+
 # --- atomic write: write_atomic <path> < content-on-stdin ---
 write_atomic() {
   local dest="$1" tmp

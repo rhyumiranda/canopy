@@ -383,8 +383,11 @@ _herdr_launch_claude() {
   local id="$1" path="$2" tab="$3" prompt="$4" name="$5"
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
+  # CANOPY_ROLE=worker: the worker shares the orchestrator's .canopy via
+  # git-common-dir, so canopy_role_guard must refuse orchestrator-only commands
+  # it might run. Without this it would inherit CANOPY_ROLE=orchestrator.
   "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
-    claude --dangerously-skip-permissions --append-system-prompt "$(_agent_body worker)" "$prompt"
+    env CANOPY_ROLE=worker claude --dangerously-skip-permissions --append-system-prompt "$(_agent_body worker)" "$prompt"
 }
 
 _herdr_launch_codex() {
@@ -399,7 +402,7 @@ _herdr_launch_codex() {
   # seeded prompt died with it. Passing the prompt as codex's argument delivers it
   # to a durable interactive session instead.
   "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
-    codex "${codex_args[@]}" "$prompt"
+    env CANOPY_ROLE=worker codex "${codex_args[@]}" "$prompt"
 }
 
 _herdr_launch() {
