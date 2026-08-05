@@ -364,4 +364,77 @@ ID4="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add saved-workspace 2>/dev/null")
 (cd "$R2" && eval "HERDR_NO_CONTEXT=1 $ENV \"$CANOPY\" worker start --agent claude $ID4 >/dev/null 2>&1") \
   && ok 'start uses task saved workspace before context' || bad 'saved workspace was ignored'
 
+echo "== AXI ergonomics (Option B: additive; base identity + JSON status preserved) =="
+cd "$R"
+# concise per-subcommand --help on stdout, exit 0 (AXI §10)
+for sub in start resume attach send status read reconcile close stop; do
+  H="$(eval "$ENV \"$CANOPY\" worker $sub --help 2>/dev/null")"; HRC=$?
+  { [ "$HRC" = 0 ] && printf '%s' "$H" | grep -q "usage: canopy worker $sub"; } \
+    && ok "worker $sub --help prints usage on stdout (exit 0)" \
+    || bad "worker $sub --help missing usage or nonzero (rc=$HRC)"
+done
+
+# unknown flag fails loud: exit 2, structured error on STDOUT, stderr clean (AXI §6)
+UF_OUT="$(eval "$ENV \"$CANOPY\" worker start --bogus $ID 2>/dev/null")"; UF_RC=$?
+[ "$UF_RC" = 2 ] && ok "unknown flag exits 2" || bad "unknown flag exit $UF_RC (want 2)"
+printf '%s' "$UF_OUT" | grep -q '^error: unknown flag --bogus' && ok "unknown flag structured error on stdout" || bad "unknown flag error missing from stdout"
+printf '%s' "$UF_OUT" | grep -q '^help: ' && ok "unknown flag inlines valid flags (self-correcting)" || bad "unknown flag missing help hint"
+UF_ERR="$(eval "$ENV \"$CANOPY\" worker start --bogus $ID 2>&1 1>/dev/null")"
+[ -z "$UF_ERR" ] && ok "usage error keeps stderr clean" || bad "usage error leaked to stderr: $UF_ERR"
+
+# missing task-id is also a usage error (exit 2, stdout)
+MT_OUT="$(eval "$ENV \"$CANOPY\" worker status 2>/dev/null")"; MT_RC=$?
+[ "$MT_RC" = 2 ] && ok "missing task-id exits 2" || bad "missing task-id exit $MT_RC"
+printf '%s' "$MT_OUT" | grep -q '^error: missing task-id' && ok "missing task-id structured error on stdout" || bad "missing task-id error missing"
+
+# strict flags apply to status too (status output stays base JSON under Option B)
+SJ_RC=0; eval "$ENV \"$CANOPY\" worker status --bogus $ID2 >/dev/null 2>&1" || SJ_RC=$?
+[ "$SJ_RC" = 2 ] && ok "status rejects unknown flag (exit 2)" || bad "status unknown flag exit $SJ_RC"
+
+# start emits a clean TOON confirmation on stdout; diagnostics stay on stderr
+IDS="$(eval "$ENV \"$CANOPY\" task add 'sep check' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDS worktree $R >/dev/null 2>&1"
+SP_OUT="$(eval "$ENV HERDR_TAB_N=9 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDS 2>/dev/null")"
+printf '%s' "$SP_OUT" | grep -q "^task: $IDS" && ok "start emits task line on stdout" || bad "start stdout missing task"
+printf '%s' "$SP_OUT" | grep -q '^agent: claude' && ok "start emits agent on stdout" || bad "start stdout missing agent"
+printf '%s' "$SP_OUT" | grep -q '^pane: pane-claude' && ok "start emits pane on stdout" || bad "start stdout missing pane"
+printf '%s' "$SP_OUT" | grep -q '\[canopy\]' && bad "start leaked [canopy] logs to stdout" || ok "start keeps [canopy] logs off stdout"
+SP_ERR="$(eval "$ENV HERDR_TAB_N=9 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDS 2>&1 1>/dev/null")"
+printf '%s' "$SP_ERR" | grep -q '\[canopy\]' && ok "start diagnostics go to stderr" || bad "start diagnostics missing from stderr"
+
+# send: unknown flag before id rejected (exit 2); send on an OWNED pane confirms as TOON
+SU_RC=0; eval "$ENV \"$CANOPY\" worker send --bogus $ID hi >/dev/null 2>&1" || SU_RC=$?
+[ "$SU_RC" = 2 ] && ok "send rejects unknown flag (exit 2)" || bad "send unknown flag exit $SU_RC"
+IDSND="$(eval "$ENV \"$CANOPY\" task add 'send confirm' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDSND worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDSND agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDSND herdr_pane_id pane-send >/dev/null 2>&1"
+SD_OUT="$(eval "$ENV HERDR_EXPECTED_TASK=$IDSND \"$CANOPY\" worker send $IDSND 'do the thing' 2>/dev/null")"; SD_RC=$?
+[ "$SD_RC" = 0 ] && ok "send exits 0 on an owned pane" || bad "send exit $SD_RC"
+printf '%s' "$SD_OUT" | grep -q '^sent: ok' && ok "send emits TOON confirmation" || bad "send missing confirmation"
+printf '%s' "$SD_OUT" | grep -q '\[canopy\]' && bad "send leaked logs to stdout" || ok "send keeps stdout clean"
+
+# stop: unknown flag rejected (exit 2); stop on an OWNED pane confirms as TOON
+STU_RC=0; eval "$ENV \"$CANOPY\" worker stop --bogus x >/dev/null 2>&1" || STU_RC=$?
+[ "$STU_RC" = 2 ] && ok "stop rejects unknown flag (exit 2)" || bad "stop unknown flag exit $STU_RC"
+IDSTP="$(eval "$ENV \"$CANOPY\" task add 'stop confirm' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDSTP worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDSTP agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDSTP herdr_pane_id pane-stopc >/dev/null 2>&1"
+ST2_OUT="$(eval "$ENV HERDR_EXPECTED_TASK=$IDSTP \"$CANOPY\" worker stop $IDSTP 2>/dev/null")"; ST2_RC=$?
+[ "$ST2_RC" = 0 ] && ok "stop exits 0 on an owned pane" || bad "stop exit $ST2_RC"
+printf '%s' "$ST2_OUT" | grep -q '^stopped: ok' && ok "stop emits TOON confirmation" || bad "stop missing confirmation"
+
+# close emits a TOON confirmation on stdout with checks output kept off stdout
+IDC="$(eval "$ENV \"$CANOPY\" task add 'close check' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDC worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDC agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDC herdr_pane_id pane-closec >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDC herdr_tab_id tab-closec >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task checkpoint $IDC ready_for_review >/dev/null 2>&1"
+CL_OUT="$(eval "$ENV HERDR_EXPECTED_TASK=$IDC \"$CANOPY\" worker close $IDC 2>/dev/null")"; CL_RC=$?
+[ "$CL_RC" = 0 ] && ok "close exits 0" || bad "close exit $CL_RC"
+printf '%s' "$CL_OUT" | grep -q '^status: done' && ok "close emits status: done (TOON)" || bad "close missing status done"
+printf '%s' "$CL_OUT" | grep -q '\[canopy\]' && bad "close leaked logs to stdout" || ok "close keeps stdout clean"
+
 printf '\n== %s passed, %s failed ==\n' "$PASS" "$FAIL"; [ "$FAIL" -eq 0 ]

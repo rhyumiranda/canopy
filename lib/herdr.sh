@@ -464,32 +464,118 @@ Continue from the checkpoint; do not restart."
   printf '%s\n' "$pane"
 }
 
+# _worker_help <cmd> — concise per-subcommand reference on stdout (AXI §10).
+# The ergonomics layer over the base Herdr worker commands: strict flags, help,
+# and TOON confirmations. Diagnostics/JSON status behavior is unchanged.
+_worker_help() {
+  case "$1" in
+    start) cat <<'EOF'
+usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <task-id>
+  Launch (or reuse) an interactive Herdr worker for a leased task.
+  --agent claude|codex   worker backend (default: task's agent, else claude)
+  --workspace <id>       Herdr workspace id (default: persisted, else current pane)
+  --headless             run a detached (non-Herdr) worker instead
+  -h, --help             show this help
+EOF
+      ;;
+    resume) cat <<'EOF'
+usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <task-id>
+  Relaunch an interactive Herdr worker from its checkpoint.
+  --agent claude|codex   backend to resume through (default: task's agent)
+  --workspace <id>       Herdr workspace id (default: persisted, else current pane)
+  -h, --help             show this help
+EOF
+      ;;
+    attach) cat <<'EOF'
+usage: canopy worker attach <task-id>
+  Take over the task's Herdr pane (hands off to the interactive TUI).
+  -h, --help   show this help
+EOF
+      ;;
+    send) cat <<'EOF'
+usage: canopy worker send [--] <task-id> <text...>
+  Send a line of text to the task's Herdr pane.
+  -h, --help   show this help  (use -- so text starting with - is not a flag)
+EOF
+      ;;
+    status) cat <<'EOF'
+usage: canopy worker status <task-id>
+  Print bounded, structured (JSON) status for the task's Herdr worker.
+  -h, --help   show this help
+EOF
+      ;;
+    read) cat <<'EOF'
+usage: canopy worker read <task-id> [--lines <1..120>]
+  Print fuller recent worker context (raw).
+  --lines <n>   number of lines (default 80, max 120)
+  -h, --help    show this help
+EOF
+      ;;
+    reconcile) cat <<'EOF'
+usage: canopy worker reconcile --agent claude|codex <task-id>
+  Verify and clear legacy Herdr state so the task can resume with an explicit backend.
+  --agent claude|codex   backend that previously owned the pane/tab (required)
+  -h, --help             show this help
+EOF
+      ;;
+    close) cat <<'EOF'
+usage: canopy worker close <task-id>
+  Close the task's Herdr tab (requires ready_for_review + passing checks).
+  -h, --help   show this help
+EOF
+      ;;
+    stop) cat <<'EOF'
+usage: canopy worker stop <task-id|session-id>
+  Stop a worker (interactive Herdr pane or headless process).
+  -h, --help   show this help
+EOF
+      ;;
+  esac
+}
+
 canopy_worker_start() {
   local agent="" id="" workspace="" headless=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      -h|--help) _worker_help start; return 0 ;;
       --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
-      --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || die '--workspace needs a workspace id' ;;
+      --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || usage_error "--workspace needs a workspace id" "usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <task-id>" ;;
       --headless) headless=1 ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <id>'; return 0 ;;
-      -*) die "unknown worker start option: $1" ;;
-      *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker start [--agent claude|codex] <id>'; break ;;
+      -*) usage_error "unknown flag $1 for 'worker start'" "valid flags: --agent, --workspace, --headless (--help always allowed)" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <task-id>"; break ;;
     esac
     shift
   done
-  [ -n "$id" ] || die 'usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <id>'
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker start [--agent claude|codex] [--workspace <id>] [--headless] <task-id>"
   if [ "$headless" = 1 ]; then
     [ -z "$workspace" ] || die '--workspace is only valid for interactive Herdr workers'
     agent="${agent:-$(canopy_task_agent "$id")}"
     canopy_worker_spawn --agent "$agent" "$id"
     return
   fi
-  _herdr_start "$id" "${agent:-$(canopy_task_agent "$id")}" "$workspace"
+  agent="${agent:-$(canopy_task_agent "$id")}"
+  _herdr_start "$id" "$agent" "$workspace" >/dev/null
+  local pane
+  pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")" || pane=""
+  toon_obj task "$id" agent "$agent" pane "${pane:--}" state working
+  toon_help "Run \`canopy worker status $id\` to check progress" "Run \`canopy worker send $id \"<text>\"\` to steer it"
 }
 
 canopy_worker_attach() {
+  local id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help attach; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker attach'" "valid flags: --help. usage: canopy worker attach <task-id>" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker attach <task-id>"; break ;;
+    esac
+    shift
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker attach <task-id>"
   require_canopy; need jq
-  local id="${1:?task id}" tf pane tab agent target; _assert_task "$id"; tf="$(task_file "$id")"
+  local tf pane tab agent target; _assert_task "$id"; tf="$(task_file "$id")"
   agent="$(jq -r '.agent // empty' "$tf")"
   [ -n "$agent" ] || die "task $id has no Herdr backend identity; reconcile legacy state first"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
@@ -504,9 +590,22 @@ canopy_worker_attach() {
 }
 
 canopy_worker_send() {
+  local id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help send; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker send'" "valid flags: --help. usage: canopy worker send [--] <task-id> <text...>" ;;
+      *) id="$1"; shift; break ;;
+    esac
+    shift
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; shift; fi
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker send [--] <task-id> <text...>"
+  local text="$*"
+  [ -n "$text" ] || usage_error "missing text to send" "usage: canopy worker send [--] <task-id> <text...>"
   require_canopy; need jq
-  local id="${1:?task id}" text="${*:2}" tf pane tab agent; _assert_task "$id"; tf="$(task_file "$id")"
-  [ -n "$text" ] || die 'usage: canopy worker send <id> <text>'
+  local tf pane tab agent; _assert_task "$id"; tf="$(task_file "$id")"
   agent="$(jq -r '.agent // empty' "$tf")"
   [ -n "$agent" ] || die "task $id has no Herdr backend identity; reconcile legacy state first"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
@@ -516,13 +615,27 @@ canopy_worker_send() {
     || die "task $id Herdr pane identity does not match; refusing to send"
   [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$id" "$agent")" \
     || die "task $id Herdr tab identity does not match; refusing to send"
-  "$(_herdr_bin)" agent send "$pane" "$text"
+  "$(_herdr_bin)" agent send "$pane" "$text" >&2
   task_log "$id" "sent message to Herdr pane $pane"
+  toon_obj task "$id" pane "$pane" sent ok
+  toon_help "Run \`canopy worker status $id\` to see the worker's response"
 }
 
 canopy_worker_status() {
+  local id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help status; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker status'" "valid flags: --help. usage: canopy worker status <task-id>" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker status <task-id>"; break ;;
+    esac
+    shift
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker status <task-id>"
   require_canopy; need jq
-  local id="${1:?task id}" tf pane tab explain state summary agent context; _assert_task "$id"
+  local tf pane tab explain state summary agent context; _assert_task "$id"
   tf="$(task_file "$id")"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"; tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
   if [ -z "$(jq -r '.agent // empty' "$tf")" ] && { [ -n "$pane" ] || [ -n "$tab" ]; }; then
@@ -550,13 +663,19 @@ canopy_worker_status() {
 }
 
 canopy_worker_read() {
+  local id="" lines=80
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help read; return 0 ;;
+      --lines) shift; lines="${1:-}"; { [ "$lines" -ge 1 ] 2>/dev/null && [ "$lines" -le 120 ] 2>/dev/null; } || usage_error "--lines must be 1..120" "usage: canopy worker read <task-id> [--lines <1..120>]" ;;
+      -*) usage_error "unknown flag $1 for 'worker read'" "valid flags: --lines (--help always allowed)" ;;
+      *) [ -z "$id" ] || usage_error "unexpected argument: $1" "usage: canopy worker read <task-id> [--lines <1..120>]"; id="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker read <task-id> [--lines <1..120>]"
   require_canopy; need jq
-  local id="${1:?task id}" lines=80 pane tab agent logf; _assert_task "$id"
-  case "${2:-}" in
-    --lines) lines="${3:-}"; [ "$lines" -ge 1 ] 2>/dev/null && [ "$lines" -le 120 ] 2>/dev/null || die '--lines must be 1..120' ;;
-    "") ;;
-    *) die 'usage: canopy worker read <id> [--lines <1..120>]' ;;
-  esac
+  local pane tab agent logf; _assert_task "$id"
   pane="$(jq -r '.herdr_pane_id // empty' "$(task_file "$id")")"
   tab="$(jq -r '.herdr_tab_id // empty' "$(task_file "$id")")"
   if [ -z "$(jq -r '.agent // empty' "$(task_file "$id")")" ] && { [ -n "$pane" ] || [ -n "$tab" ]; }; then
@@ -611,15 +730,15 @@ canopy_worker_resume() {
   local id="" workspace="" agent=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || die '--workspace needs a workspace id' ;;
+      -h|--help) _worker_help resume; return 0 ;;
+      --workspace) shift; workspace="${1:-}"; [ -n "$workspace" ] || usage_error "--workspace needs a workspace id" "usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <task-id>" ;;
       --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <id>'; return 0 ;;
-      -*) die "unknown worker resume option: $1" ;;
-      *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker resume [--workspace <id>] <id>'; break ;;
+      -*) usage_error "unknown flag $1 for 'worker resume'" "valid flags: --agent, --workspace (--help always allowed)" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <task-id>"; break ;;
     esac
     shift
   done
-  [ -n "$id" ] || die 'usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <id>'
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker resume [--agent claude|codex] [--workspace <id>] <task-id>"
   _assert_task "$id"
   _herdr_start "$id" "${agent:-$(canopy_task_agent "$id")}" "$workspace" 1
   _herdr_report "$id" working "interactive worker resumed"
@@ -630,14 +749,15 @@ canopy_worker_reconcile() {
   local id="" agent="" tf tab pane
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      -h|--help) _worker_help reconcile; return 0 ;;
       --agent) shift; agent="$(_worker_agent_flag "${1:-}")" ;;
-      -h|--help) printf '%s\n' 'usage: canopy worker reconcile --agent claude|codex <id>'; return 0 ;;
-      -*) die "unknown worker reconcile option: $1" ;;
-      *) id="$1"; shift; [ "$#" -eq 0 ] || die 'usage: canopy worker reconcile --agent claude|codex <id>'; break ;;
+      -*) usage_error "unknown flag $1 for 'worker reconcile'" "valid flags: --agent (--help always allowed)" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker reconcile --agent claude|codex <task-id>"; break ;;
     esac
     shift
   done
-  [ -n "$id" ] && [ -n "$agent" ] || die 'usage: canopy worker reconcile --agent claude|codex <id>'
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker reconcile --agent claude|codex <task-id>"
+  [ -n "$agent" ] || usage_error "missing --agent" "usage: canopy worker reconcile --agent claude|codex <task-id>"
   _assert_task "$id"; tf="$(task_file "$id")"
   tab="$(jq -r '.herdr_tab_id // empty' "$tf")"; pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
   [ -n "$tab" ] || [ -n "$pane" ] || die "task $id has no legacy Herdr IDs to reconcile"
@@ -651,8 +771,20 @@ canopy_worker_reconcile() {
 }
 
 canopy_worker_close() {
+  local id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help close; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker close'" "valid flags: --help. usage: canopy worker close <task-id>" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker close <task-id>"; break ;;
+    esac
+    shift
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker close <task-id>"
   require_canopy; need jq; _herdr_need
-  local id="${1:?task id}" tf checkpoint path pane tab agent; _assert_task "$id"; tf="$(task_file "$id")"
+  local tf checkpoint path pane tab agent; _assert_task "$id"; tf="$(task_file "$id")"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf")"
   [ "$checkpoint" = ready_for_review ] || die "task $id is not ready_for_review"
   path="$(jq -r '.worktree // empty' "$tf")"
@@ -665,7 +797,7 @@ canopy_worker_close() {
     || die "task $id Herdr pane identity does not match; refusing to close it"
   [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$id" "$agent")" \
     || die "task $id Herdr tab identity does not match; refusing to close it"
-  ( cd "$path" && canopy_checks_run ) || die "task $id checks failed"
+  ( cd "$path" && canopy_checks_run ) >&2 || die "task $id checks failed"
   local pane_rc=0 tab_rc=0
   if [ -n "$pane" ]; then
     _herdr_supervisor_stop "$id" "$pane" "$(jq -r '.herdr_agent_session_id // empty' "$tf")"
@@ -682,4 +814,6 @@ canopy_worker_close() {
   fi
   task_status "$id" done >/dev/null
   task_log "$id" "closed Herdr worker after ready_for_review and passing checks"
+  toon_obj task "$id" pane "${pane:--}" tab "${tab:--}" status done
+  toon_help "Run \`canopy pr open $id\` to open the pull request"
 }

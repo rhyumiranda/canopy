@@ -14,6 +14,31 @@ die()  { printf '\033[31m[canopy] error:\033[0m %s\n' "$*" >&2; exit 1; }
 # --- dependency guard ---
 need() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
+# --- AXI-style structured output (experimental worker CLI) -------------------
+# The Herdr-facing worker commands follow AXI ergonomics (kunchenguid/axi):
+# compact TOON on stdout, explicit empty states, and fail-loud usage errors.
+#
+# TOON flat object: emit `key: value` lines to stdout (machine-parseable).
+toon_obj() { while [ "$#" -ge 2 ]; do printf '%s: %s\n' "$1" "$2"; shift 2; done; }
+
+# Contextual next-step hints (AXI §9). Single line -> `help: x`; many -> array.
+toon_help() {
+  [ "$#" -gt 0 ] || return 0
+  if [ "$#" -eq 1 ]; then printf 'help: %s\n' "$1"; return 0; fi
+  printf 'help[%s]:\n' "$#"
+  local h; for h in "$@"; do printf '  %s\n' "$h"; done
+}
+
+# Usage error (AXI §6 "fail loud on unrecognized input"): the structured error
+# and its valid-flags hint go to STDOUT so the calling agent can read them and
+# self-correct in one turn; exit code 2 marks a usage error (distinct from the
+# runtime error `die`, which stays on stderr with exit 1).
+usage_error() {
+  printf 'error: %s\n' "$1"
+  [ -n "${2:-}" ] && printf 'help: %s\n' "$2"
+  exit 2
+}
+
 # --- repo / .canopy paths ---
 # The repo root is the MAIN worktree's toplevel — resolved even when cwd is a
 # linked worktree, so `.canopy/` (which lives in the main tree) is found when a
