@@ -15,13 +15,25 @@ echo "== day 8 hooks/guardrails =="
 # --- SessionStart digest ---
 R="$WORK/repo"; mkdir -p "$R"; ( cd "$R"; git init -q; git config user.email t@t; git config user.name t; echo x>f; git add -A; git commit -qm i )
 ( cd "$R" && "$CANOPY" init >/dev/null 2>&1 && "$CANOPY" task add "expose port" >/dev/null 2>&1 )
-OUT="$(CLAUDE_PROJECT_DIR="$R" bash "$ROOT/hooks/session-start-digest.sh")"
+# orchestrator role -> full digest (playbook + board)
+OUT="$(CLAUDE_PROJECT_DIR="$R" CANOPY_ROLE=orchestrator bash "$ROOT/hooks/session-start-digest.sh")"
 echo "$OUT" | jq -e '.hookSpecificOutput.hookEventName=="SessionStart"' >/dev/null 2>&1 && ok "digest emits SessionStart JSON" || bad "digest bad JSON"
 echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' | grep -q 'expose port' && ok "digest includes the task" || bad "digest missing task"
+echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' | grep -q 'You are the orchestrator' && ok "digest includes orchestrator playbook" || bad "digest missing playbook"
 LEN="$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' | wc -c | tr -d ' ')"
 [ "$LEN" -le 10000 ] && ok "digest under 10k ($LEN)" || bad "digest too long ($LEN)"
-# no-op outside a canopy repo
-EMPTY="$(CLAUDE_PROJECT_DIR="$WORK/none" bash "$ROOT/hooks/session-start-digest.sh")"
+# Codex branch (no CLAUDE_PROJECT_DIR): plain text digest from inside the repo
+CTX="$(cd "$R" && CANOPY_ROLE=orchestrator bash "$ROOT/hooks/session-start-digest.sh")"
+echo "$CTX" | grep -q 'expose port' && ok "codex digest is plain-text with task" || bad "codex digest missing task"
+# non-orchestrator role in a canopy repo -> one-line hint only, no board/playbook
+HINT="$(env -u CANOPY_ROLE CLAUDE_PROJECT_DIR="$R" bash "$ROOT/hooks/session-start-digest.sh")"
+echo "$HINT" | jq -e '.hookSpecificOutput.hookEventName=="SessionStart"' >/dev/null 2>&1 && ok "hint emits valid SessionStart JSON" || bad "hint bad JSON"
+HC="$(echo "$HINT" | jq -r '.hookSpecificOutput.additionalContext')"
+echo "$HC" | grep -qi 'run `canopy start`' && ok "non-orchestrator gets the one-line hint" || bad "non-orchestrator missing hint"
+echo "$HC" | grep -q 'expose port' && bad "hint must not leak the board" || ok "hint omits the board"
+echo "$HC" | grep -q 'You are the orchestrator' && bad "hint must not claim orchestrator role" || ok "hint omits playbook"
+# no-op outside a canopy repo (even as orchestrator)
+EMPTY="$(CLAUDE_PROJECT_DIR="$WORK/none" CANOPY_ROLE=orchestrator bash "$ROOT/hooks/session-start-digest.sh")"
 [ -z "$EMPTY" ] && ok "digest no-op outside canopy" || bad "digest should be empty outside canopy"
 
 # --- write-guard ---
