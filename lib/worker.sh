@@ -229,6 +229,18 @@ canopy_worker_stop() {
   require_canopy; need jq
   local sid id="" agent="" pid="" tf pane tab
   tf="$(task_file "$ref" 2>/dev/null || true)"
+  # Automated-cleanup path: `CANOPY_WORKER_CLEANUP=1 canopy worker stop <id>` must
+  # never close a live/unshipped worker. Route through the same _herdr_safe_to_close
+  # chokepoint the merge-watcher and `worker clean` use: close only when
+  # done+merged AND the live pane is not working; otherwise leave it running.
+  if [ -f "$tf" ] && [ "${CANOPY_WORKER_CLEANUP:-0}" = 1 ]; then
+    if declare -F _herdr_clean_one >/dev/null 2>&1 && _herdr_clean_one "$ref"; then
+      toon_obj task "$ref" cleaned ok
+    else
+      toon_obj task "$ref" cleaned skipped
+    fi
+    return 0
+  fi
   if [ -f "$tf" ]; then
     pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
     tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"

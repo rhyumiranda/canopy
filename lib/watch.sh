@@ -87,6 +87,12 @@ canopy_watch_pr_once() {
         _notify "task $id merged (PR #$pr) — returning worktree"
       fi
       ( canopy_worktree_return "$id" ) >/dev/null 2>&1 || warn "watch: worktree return had an issue for $id"
+      # Auto-close the worker's Herdr tab/pane now that it's merged — but only
+      # through the safe-to-close guard, so a still-working pane (rare, but the
+      # merge and the pane state are independent) is never torn down.
+      if declare -F _herdr_clean_one >/dev/null 2>&1 && command -v "$(_herdr_bin)" >/dev/null 2>&1; then
+        ( _herdr_clean_one "$id" ) >/dev/null 2>&1 && _notify "task $id Herdr worker closed (merged)" || true
+      fi
     else
       info "watch: PR #$pr still open ($id)"
     fi
