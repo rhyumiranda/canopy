@@ -125,6 +125,7 @@ case "$cmd" in
       spawn)     canopy_worker_spawn "$@" ;;
       fix)       canopy_worker_fix "$@" ;;
       logs)      canopy_worker_logs "$@" ;;
+      idle)      canopy_worker_idle "$@" ;;
       stop)      canopy_worker_stop "$@" ;;
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;

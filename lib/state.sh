@@ -77,12 +77,15 @@ _lifecycle_init() {
   [ -f "$ef" ] || printf '%s\n' '{"version":1,"events":[]}' | write_atomic "$ef"
 }
 
-# task_lifecycle_event <id> <terminal-status> [reason]
-# Returns 0 only when it appended a new durable transition.
+# task_lifecycle_event <id> <status> [reason]
+# Appends a durable, orchestrator-consumable transition. Returns 0 only when it
+# appended a NEW event. Accepts the terminal statuses plus the non-terminal 'idle'
+# wake: a worker that finishes its turn and idles at the prompt is a completion
+# signal the orchestrator must consume, even though the task itself is not done.
 task_lifecycle_event() {
   require_canopy; need jq
   local id="${1:?task id}" status="${2:?status}" reason="${3:-status changed}" tf ef now checkpoint pane tab sid ws agent gen key exists
-  _assert_task "$id"; _status_terminal "$status" || return 1
+  _assert_task "$id"; { _status_terminal "$status" || [ "$status" = idle ]; } || return 1
   tf="$(task_file "$id")"; _lifecycle_init; ef="$(lifecycle_file)"; now="$(_c_ts)"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf")"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
