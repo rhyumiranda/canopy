@@ -215,6 +215,24 @@ for mode in HERDR_MALFORMED_GET HERDR_AMBIGUOUS_GET; do
   fi
 done
 
+# parse the real herdr 0.7.3 `agent start` response shape: pane id, session id, and
+# tab id all live under .result.agent.* (not .result.pane.*/.result.*). Regression:
+# missing these made _herdr_pane_id return empty -> "Herdr did not return a pane id".
+AGENT_START_JSON='{"id":"cli:agent:start","result":{"agent":{"agent_status":"unknown","cwd":"/tmp","name":"claude","pane_id":"w6:p4R","tab_id":"w6:tE","terminal_id":"term_x","workspace_id":"w6","agent_session_id":"sess-abc"},"argv":[],"type":"agent_started"}}'
+herdr_jq() {
+  CANOPY_ROOT="$ROOT" bash -c '. "$2/lib/herdr.sh"; '"$1" _ "$1" "$ROOT"
+}
+[ "$(printf '%s' "$AGENT_START_JSON" | herdr_jq '_herdr_pane_id')" = "w6:p4R" ] \
+  && ok 'agent start pane id read from .result.agent.pane_id' || bad 'agent start pane id not parsed'
+[ "$(printf '%s' "$AGENT_START_JSON" | herdr_jq '_herdr_agent_session_id')" = "sess-abc" ] \
+  && ok 'agent start session id read from .result.agent.agent_session_id' || bad 'agent start session id not parsed'
+[ "$(printf '%s' "$AGENT_START_JSON" | herdr_jq '_herdr_tab_id')" = "w6:tE" ] \
+  && ok 'agent start tab id read from .result.agent.tab_id' || bad 'agent start tab id not parsed'
+# no regression: `tab create` response (.result.tab.*) still parses to the tab id.
+TAB_CREATE_JSON='{"jsonrpc":"2.0","id":"rpc-tab","result":{"tab":{"tab_id":"tab-42"}}}'
+[ "$(printf '%s' "$TAB_CREATE_JSON" | herdr_jq '_herdr_tab_id')" = "tab-42" ] \
+  && ok 'tab create tab id still parses from .result.tab.tab_id' || bad 'tab create tab id regressed'
+
 ID8="$(eval "$ENV \"$CANOPY\" task add 'reuse backend identity' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID8 worktree $R >/dev/null 2>&1"
 eval "$ENV HERDR_FOUND_PANE=1 \"$CANOPY\" worker start --agent codex --workspace ws-existing $ID8 >/dev/null 2>&1" \
