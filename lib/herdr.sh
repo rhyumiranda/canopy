@@ -13,15 +13,20 @@ _herdr_tab_label() {
 }
 
 _herdr_tab_id() {
-  jq -r 'if type == "object" then (.result.tab.tab_id // .result.tab.id // .result.tab_id // .tab_id // empty) else . end' 2>/dev/null || true
+  # `agent start` (herdr 0.7.3) returns the tab id under .result.agent.tab_id;
+  # `tab create` returns it under .result.tab.*. Try both so every response parses.
+  jq -r 'if type == "object" then (.result.tab.tab_id // .result.tab.id // .result.tab_id // .result.agent.tab_id // .tab_id // empty) else . end' 2>/dev/null || true
 }
 
 _herdr_pane_id() {
-  jq -r 'if type == "object" then (.result.pane.pane_id // .result.pane.id // .result.pane_id // .pane_id // empty) else . end' 2>/dev/null || true
+  # `agent start` (herdr 0.7.3) returns the pane id under .result.agent.pane_id;
+  # `pane split`/other shapes use .result.pane.*. Try both so every response parses.
+  jq -r 'if type == "object" then (.result.pane.pane_id // .result.pane.id // .result.pane_id // .result.agent.pane_id // .result.agent.id // .pane_id // empty) else . end' 2>/dev/null || true
 }
 
 _herdr_agent_session_id() {
-  jq -r 'if type == "object" then (.result.agent_session_id // .result.session_id // .result.thread_id // .agent_session_id // .session_id // .thread_id // empty) else empty end' 2>/dev/null || true
+  # `agent start` (herdr 0.7.3) returns the session id under .result.agent.*.
+  jq -r 'if type == "object" then (.result.agent_session_id // .result.session_id // .result.thread_id // .result.agent.agent_session_id // .result.agent.session_id // .result.agent.thread_id // .agent_session_id // .session_id // .thread_id // empty) else empty end' 2>/dev/null || true
 }
 
 _herdr_context_workspace() {
