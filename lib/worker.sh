@@ -25,11 +25,17 @@ _worker_agent_flag() {
 }
 
 _worker_spawn_claude() {
-  local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid
+  local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid settings
+  local -a settings_arg=()
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
-  # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy.
+  # Seed the Stop hook so this worker reports idle + a lifecycle event on completion.
+  settings="$(_worker_claude_settings "$id" || true)"
+  [ -z "$settings" ] || settings_arg=(--settings "$settings")
+  # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
+  # (resolved via git-common-dir); without it the worker inherits orchestrator.
   sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
+            ${settings_arg[@]+"${settings_arg[@]}"} \
             --append-system-prompt "$(_agent_body worker)" \
             "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
   [ -n "$sid" ] || die "could not read worker session id from claude --bg"
@@ -156,8 +162,13 @@ ${issues}"
       need claude
       # Pre-trust the leased worktree so claude never stalls on the trust dialog.
       _claude_trust_path "$path"
-      # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy.
+      local settings; local -a settings_arg=()
+      settings="$(_worker_claude_settings "$id" || true)"
+      [ -z "$settings" ] || settings_arg=(--settings "$settings")
+      # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
+      # (resolved via git-common-dir); without it the worker inherits orchestrator.
       sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
+                ${settings_arg[@]+"${settings_arg[@]}"} \
                 --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
       [ -n "$sid" ] || die "could not read fix-worker session id"
       _task_set_worker_runtime "$id" claude "$sid" "" ""

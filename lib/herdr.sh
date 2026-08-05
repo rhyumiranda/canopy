@@ -379,15 +379,89 @@ _herdr_report() {
   }
 }
 
+# _worker_claude_settings <id> — write a per-worker Claude settings file whose Stop
+# hook fires on every end-of-turn and runs `canopy worker idle <id>`; echo its
+# absolute path. That is the missing completion signal: Herdr's agent status is
+# source-pinned to the last state canopy PUSHES, so a worker that finishes its turn
+# and idles at the prompt (emitting nothing) leaves Herdr showing a stale 'working'
+# forever and the orchestrator blind to the stall. The hook re-pins the status to
+# idle and enqueues a lifecycle event so the orchestrator wakes. Claude MERGES this
+# via --settings on top of the user's global settings, so the guard/session hooks are
+# untouched; the task id, canopy binary and Herdr binary are baked into the command
+# because a Stop hook has no way to learn them at runtime. Best-effort: on any failure
+# it echoes nothing and the launch proceeds without the hook (older behavior).
+_worker_claude_settings() {
+  local id="$1" dir file cmd canopy_bin herdr_bin
+  command -v jq >/dev/null 2>&1 || return 0
+  dir="$(canopy_dir)/worker-settings"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  file="$dir/$id.json"
+  canopy_bin="$CANOPY_ROOT/bin/canopy"
+  herdr_bin="$(_herdr_bin)"
+  cmd="CANOPY_HERDR_BIN='$herdr_bin' '$canopy_bin' worker idle '$id' >/dev/null 2>&1 || true"
+  jq -n --arg cmd "$cmd" '{hooks:{Stop:[{hooks:[{type:"command",command:$cmd}]}]}}' \
+    > "$file" 2>/dev/null || return 0
+  printf '%s\n' "$file"
+}
+
+# canopy worker idle <id> — invoked by the worker's Claude Stop hook on every
+# end-of-turn. Two jobs, so the worker's status is never stale and the orchestrator
+# always wakes on completion:
+#   1. Re-pin Herdr's source-pinned status to 'idle' (the fix for the stale 'working').
+#   2. Reconcile against Herdr's LIVE detection (`agent explain`): if the worker has
+#      actually entered a terminal state, emit that terminal lifecycle event (exactly
+#      as the supervisor does); otherwise emit a non-terminal 'idle' wake so the
+#      orchestrator still learns the turn finished. Either way, one wake per phase.
+# Never fails the caller (a Stop hook must not block the worker): every step is
+# guarded, and a missing pane / older Herdr just degrades to the lifecycle event.
+canopy_worker_idle() {
+  local id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) printf '%s\n' "usage: canopy worker idle <task-id>"; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker idle'" "usage: canopy worker idle <task-id>" ;;
+      *) id="$1"; shift; break ;;
+    esac
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker idle <task-id>"
+  require_canopy; need jq
+  local tf pane status current; _assert_task "$id"; tf="$(task_file "$id")"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+  # 1. Freshen Herdr's source-pinned status: the worker is idle at the prompt.
+  if [ -n "$pane" ] && command -v "$(basename "$(_herdr_bin)")" >/dev/null 2>&1; then
+    _herdr_report "$id" idle "worker idle at end of turn" || true
+  fi
+  # 2. Reconcile against live detection, then emit exactly one wake.
+  status=""
+  [ -z "$pane" ] || status="$(_herdr_probe_state "$pane" 2>/dev/null || true)"
+  if _status_terminal "$status" && _herdr_probe_gate "$id" "$status"; then
+    current="$(jq -r '.status' "$tf")"
+    [ "$current" = "$status" ] || task_set "$id" status "$status" >/dev/null
+    if task_lifecycle_event "$id" "$status" "worker reported $status on idle" >/dev/null; then
+      _notify "task $id $status"
+      task_log "$id" "idle hook queued lifecycle event: $status"
+    fi
+  elif task_lifecycle_event "$id" idle "worker idle at end of turn" >/dev/null; then
+    _notify "task $id idle"
+    task_log "$id" "idle hook queued lifecycle event: idle"
+  fi
+}
+
 _herdr_launch_claude() {
-  local id="$1" path="$2" tab="$3" prompt="$4" name="$5"
+  local id="$1" path="$2" tab="$3" prompt="$4" name="$5" settings
+  local -a settings_arg=()
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
+  settings="$(_worker_claude_settings "$id" || true)"
+  [ -z "$settings" ] || settings_arg=(--settings "$settings")
   # CANOPY_ROLE=worker: the worker shares the orchestrator's .canopy via
   # git-common-dir, so canopy_role_guard must refuse orchestrator-only commands
   # it might run. Without this it would inherit CANOPY_ROLE=orchestrator.
   "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
-    env CANOPY_ROLE=worker claude --dangerously-skip-permissions --append-system-prompt "$(_agent_body worker)" "$prompt"
+    env CANOPY_ROLE=worker claude --dangerously-skip-permissions ${settings_arg[@]+"${settings_arg[@]}"} \
+    --append-system-prompt "$(_agent_body worker)" "$prompt"
 }
 
 _herdr_launch_codex() {
@@ -401,6 +475,9 @@ _herdr_launch_codex() {
   # the tab was never a steerable interactive worker — and on any early exit the
   # seeded prompt died with it. Passing the prompt as codex's argument delivers it
   # to a durable interactive session instead.
+  # CANOPY_ROLE=worker: the worker shares the orchestrator's .canopy via
+  # git-common-dir, so canopy_role_guard must refuse orchestrator-only commands
+  # it might run. Without this it would inherit CANOPY_ROLE=orchestrator.
   "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
     env CANOPY_ROLE=worker codex "${codex_args[@]}" "$prompt"
 }

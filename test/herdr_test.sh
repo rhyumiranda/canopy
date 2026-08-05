@@ -75,6 +75,8 @@ case "$1 ${2:-}" in
       printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-claude","result":{"pane":{"pane_id":"pane-claude"},"agent_session_id":"herdr-claude"}}'
     fi ;;
   agent\ explain) printf '%s\n' '{"state":"working","summary":"bounded worker summary"}' ;;
+  # a live worker is not in a terminal state, so the probe's terminal waits fail
+  wait\ agent-status) exit 1 ;;
   agent\ read) printf '%s\n' 'full worker context' ;;
   agent\ attach|agent\ send) exit 0 ;;
   pane\ report-agent) [ "${HERDR_REPORT_FAIL:-0}" = 1 ] && exit 9 || exit 0 ;;
@@ -482,5 +484,47 @@ eval "$ENV \"$CANOPY\" task set $IDN2 worktree $R >/dev/null 2>&1"
 eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDN2 >/dev/null 2>&1"
 grep -q -- "agent start cp-fix-herdr-$IDN2 " "$WORK/herdr.log" && [ "$IDN1" != "$IDN2" ] \
   && ok 'colliding titles stay unique via the task-id suffix' || bad 'colliding titles produced a duplicate agent name'
+
+# idle reporting: a worker's Claude Stop hook runs `canopy worker idle`, which must
+# (a) push a NON-working state to Herdr so the source-pinned status is never stale,
+# and (b) queue a lifecycle event so the orchestrator wakes on completion. Also verify
+# the Claude launch actually seeds that Stop hook via --settings.
+# Kept at the very end (adds tasks) so it never renumbers id-sensitive tasks above.
+IDIDLE="$(eval "$ENV \"$CANOPY\" task add 'idle reporting' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDIDLE worktree $R >/dev/null 2>&1"
+eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDIDLE >/dev/null 2>&1"
+# the launch keeps the t21 worker-role prefix AND wires a Stop hook via --settings,
+# together on one line, pointing at a per-worker settings file (regression guard)
+grep -q -- "agent start .* -- env CANOPY_ROLE=worker claude --dangerously-skip-permissions --settings .*worker-settings/$IDIDLE.json" "$WORK/herdr.log" \
+  && ok 'Claude launch keeps env CANOPY_ROLE=worker AND seeds --settings Stop hook' || bad 'Claude launch dropped worker-role env or --settings Stop hook'
+SETF="$R/.canopy/worker-settings/$IDIDLE.json"
+{ [ -f "$SETF" ] && jq -e '.hooks.Stop[0].hooks[0].command | test("worker idle .'"$IDIDLE"'")' "$SETF" >/dev/null 2>&1; } \
+  && ok 'seeded Stop hook runs `canopy worker idle <id>`' || bad 'seeded Stop hook does not call worker idle'
+# now simulate the worker going idle at end of turn
+: > "$WORK/report.argv"
+EV_BEFORE_IDLE="$(jq -r '.events|length' "$R/.canopy/events/lifecycle.json" 2>/dev/null || echo 0)"
+eval "$ENV HERDR_ARGV_LOG=$WORK/report.argv HERDR_EXPECTED_TASK=$IDIDLE \"$CANOPY\" worker idle $IDIDLE >/dev/null 2>&1" \
+  && ok 'worker idle exits 0' || bad 'worker idle failed'
+# (a) a non-working state was pushed to Herdr for this worker's pane
+grep -qx -- '--state' "$WORK/report.argv" && grep -qx -- idle "$WORK/report.argv" \
+  && ok 'worker idle reports a non-working (idle) state to Herdr' || bad 'worker idle did not push idle state'
+# (b) exactly one idle lifecycle event was queued for the task
+jq -e '[.events[]|select(.task_id=="'"$IDIDLE"'" and .status=="idle")]|length==1' "$R/.canopy/events/lifecycle.json" >/dev/null 2>&1 \
+  && ok 'worker idle queues one idle lifecycle event' || bad 'worker idle missing idle lifecycle event'
+[ "$(jq -r '.events|length' "$R/.canopy/events/lifecycle.json")" -gt "$EV_BEFORE_IDLE" ] \
+  && ok 'idle lifecycle event is durable and consumable' || bad 'idle lifecycle event not appended'
+# a repeat idle within the same active phase does not spam a second wake
+eval "$ENV HERDR_EXPECTED_TASK=$IDIDLE \"$CANOPY\" worker idle $IDIDLE >/dev/null 2>&1" || true
+jq -e '[.events[]|select(.task_id=="'"$IDIDLE"'" and .status=="idle")]|length==1' "$R/.canopy/events/lifecycle.json" >/dev/null 2>&1 \
+  && ok 'repeat idle in same phase adds no duplicate event' || bad 'repeat idle duplicated the event'
+# older-Herdr fallback: report-agent failing must not break the idle event queue
+IDIDLE2="$(eval "$ENV \"$CANOPY\" task add 'idle fallback' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDIDLE2 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDIDLE2 agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $IDIDLE2 herdr_pane_id pane-idle2 >/dev/null 2>&1"
+eval "$ENV HERDR_REPORT_FAIL=1 HERDR_EXPECTED_TASK=$IDIDLE2 \"$CANOPY\" worker idle $IDIDLE2 >/dev/null 2>&1" \
+  && ok 'worker idle survives a failing Herdr status report' || bad 'worker idle aborted on Herdr report failure'
+jq -e '[.events[]|select(.task_id=="'"$IDIDLE2"'" and .status=="idle")]|length==1' "$R/.canopy/events/lifecycle.json" >/dev/null 2>&1 \
+  && ok 'idle event still queued when Herdr report fails' || bad 'idle event lost on Herdr report failure'
 
 printf '\n== %s passed, %s failed ==\n' "$PASS" "$FAIL"; [ "$FAIL" -eq 0 ]
