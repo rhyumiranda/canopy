@@ -32,7 +32,8 @@ _worker_spawn_claude() {
   # Seed the Stop hook so this worker reports idle + a lifecycle event on completion.
   settings="$(_worker_claude_settings "$id" || true)"
   [ -z "$settings" ] || settings_arg=(--settings "$settings")
-  # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy.
+  # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
+  # (resolved via git-common-dir); without it the worker inherits orchestrator.
   sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
             ${settings_arg[@]+"${settings_arg[@]}"} \
             --append-system-prompt "$(_agent_body worker)" \
@@ -164,7 +165,8 @@ ${issues}"
       local settings; local -a settings_arg=()
       settings="$(_worker_claude_settings "$id" || true)"
       [ -z "$settings" ] || settings_arg=(--settings "$settings")
-      # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy.
+      # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
+      # (resolved via git-common-dir); without it the worker inherits orchestrator.
       sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
                 ${settings_arg[@]+"${settings_arg[@]}"} \
                 --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"

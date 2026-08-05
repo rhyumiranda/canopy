@@ -17,6 +17,10 @@ set -euo pipefail
 if [ -n "${CANOPY_ARGV_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$CANOPY_ARGV_LOG"
 fi
+# record the inherited CANOPY_ROLE so tests can prove the spawn runs under worker role
+if [ -n "${CANOPY_ROLE_LOG:-}" ]; then
+  printf '%s\n' "${CANOPY_ROLE:-<unset>}" >> "$CANOPY_ROLE_LOG"
+fi
 has_bypass=0
 saw_approval=0
 out=""
@@ -66,8 +70,12 @@ ID="$(cd "$R" && "$CANOPY" task add "feat: fake codex worker" 2>/dev/null)"
 ( cd "$R" && "$CANOPY" task set "$ID" brief "touch file and review it" >/dev/null 2>&1 )
 
 ARGV_LOG="$WORK/codex.argv"
-SID="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ARGV_LOG="$ARGV_LOG" CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker spawn --agent codex "$ID" 2>/dev/null)"
+ROLE_LOG="$WORK/codex.role"
+SID="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ARGV_LOG="$ARGV_LOG" CANOPY_ROLE_LOG="$ROLE_LOG" CANOPY_FAKE_CODEX_SLEEP=30 CANOPY_ROLE=orchestrator "$CANOPY" worker spawn --agent codex "$ID" 2>/dev/null)"
 [ "$SID" = "codex-session-123" ] && ok "codex worker spawn returns session id" || bad "unexpected codex session id: $SID"
+# regression guard: the spawn must run codex under CANOPY_ROLE=worker even when the
+# orchestrator's env leaks CANOPY_ROLE=orchestrator, so it can't mutate the shared .canopy
+grep -qx worker "$ROLE_LOG" && ok "codex worker spawn runs under CANOPY_ROLE=worker" || bad "codex worker spawn did not set worker role"
 [ "$(grep -o -- '--dangerously-bypass-approvals-and-sandbox' "$ARGV_LOG" | wc -l | tr -d ' ')" = 1 ] && ok "codex worker spawn has one bypass flag" || bad "codex worker spawn bypass count wrong"
 case " $(cat "$ARGV_LOG") " in *" -a "*|*" --ask-for-approval "*) bad "codex worker spawn should not pass approval flag" ;; *) ok "codex worker spawn omits conflicting approval flag" ;; esac
 [ "$(jq -r '.agent' "$R/.canopy/tasks/$ID.json")" = "codex" ] && ok "task records codex agent" || bad "task missing codex agent"
@@ -103,10 +111,11 @@ SO="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID" 2>/dev/null)"; SO
 printf '%s' "$SO" | grep -q '^stopped: ok' && ok "worker stop emits structured confirmation on stdout" || bad "worker stop missing confirmation"
 printf '%s' "$SO" | grep -q '\[canopy\]' && bad "worker stop leaked logs to stdout" || ok "worker stop keeps stdout clean"
 
-: > "$ARGV_LOG"
-FIX_SID="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ARGV_LOG="$ARGV_LOG" "$CANOPY" worker fix --agent codex "$ID" "fix it" 2>/dev/null)"
+: > "$ARGV_LOG"; : > "$ROLE_LOG"
+FIX_SID="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ARGV_LOG="$ARGV_LOG" CANOPY_ROLE_LOG="$ROLE_LOG" CANOPY_ROLE=orchestrator "$CANOPY" worker fix --agent codex "$ID" "fix it" 2>/dev/null)"
 [ "$FIX_SID" = "codex-session-123" ] && ok "codex worker fix resumes session" || bad "unexpected codex fix session id: $FIX_SID"
 grep -q -- 'exec resume' "$ARGV_LOG" && ok "codex worker fix uses resume path" || bad "codex worker fix did not resume"
+grep -qx worker "$ROLE_LOG" && ok "codex worker fix/resume runs under CANOPY_ROLE=worker" || bad "codex worker fix/resume did not set worker role"
 [ "$(grep -o -- '--dangerously-bypass-approvals-and-sandbox' "$ARGV_LOG" | wc -l | tr -d ' ')" = 1 ] && ok "codex worker resume has one bypass flag" || bad "codex worker resume bypass count wrong"
 case " $(cat "$ARGV_LOG") " in *" -a "*|*" --ask-for-approval "*) bad "codex worker resume should not pass approval flag" ;; *) ok "codex worker resume omits conflicting approval flag" ;; esac
 

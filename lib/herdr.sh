@@ -423,7 +423,6 @@ canopy_worker_idle() {
       -*) usage_error "unknown flag $1 for 'worker idle'" "usage: canopy worker idle <task-id>" ;;
       *) id="$1"; shift; break ;;
     esac
-    shift
   done
   if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
   [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker idle <task-id>"
@@ -476,6 +475,9 @@ _herdr_launch_codex() {
   # the tab was never a steerable interactive worker — and on any early exit the
   # seeded prompt died with it. Passing the prompt as codex's argument delivers it
   # to a durable interactive session instead.
+  # CANOPY_ROLE=worker: the worker shares the orchestrator's .canopy via
+  # git-common-dir, so canopy_role_guard must refuse orchestrator-only commands
+  # it might run. Without this it would inherit CANOPY_ROLE=orchestrator.
   "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
     env CANOPY_ROLE=worker codex "${codex_args[@]}" "$prompt"
 }
