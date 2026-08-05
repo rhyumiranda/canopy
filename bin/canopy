@@ -64,6 +64,7 @@ commands:
   task set <id> <k> <v>  Set a field on a task
   task status <id> <s>   Set a task's status
   task show <id>       Print a task's full detail
+  events [list|consume|wait]  Read one-shot durable lifecycle events
   scribe list          List durable AGENTS.md entries (numbered)
   scribe add <fact>    Append a durable, project-intrinsic fact
   scribe replace <n> <fact>  Rewrite entry n in place
@@ -93,6 +94,13 @@ case "$cmd" in
       *)         die "unknown 'task' subcommand: ${sub:-<none>}" ;;
     esac ;;
   recover)       canopy_recover "$@" ;;
+  events)        canopy_events "$@" ;;
+  herdr)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      supervise) canopy_herdr_supervise "$@" ;;
+      *)         die "unknown 'herdr' subcommand: ${sub:-<none>}" ;;
+    esac ;;
   worktree)
     sub="${1:-}"; shift || true
     case "$sub" in

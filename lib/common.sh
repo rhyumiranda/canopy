@@ -35,6 +35,9 @@ state_file()   { echo "$(canopy_dir)/state.json"; }
 brief_file()   { echo "$(canopy_dir)/brief.md"; }
 tasks_dir()    { echo "$(canopy_dir)/tasks"; }
 task_file()    { echo "$(tasks_dir)/$1.json"; }
+events_dir()   { echo "$(canopy_dir)/events"; }
+lifecycle_file() { echo "$(events_dir)/lifecycle.json"; }
+herdr_watchers_dir() { echo "$(canopy_dir)/herdr-watchers"; }
 
 require_canopy() {
   [ -f "$(state_file)" ] || die "no .canopy/ here — run 'canopy init' first"

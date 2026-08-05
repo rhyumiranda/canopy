@@ -73,19 +73,31 @@ case "$1 ${2:-}" in
 esac
 EOF
 chmod +x "$WORK/bin/herdr"
+cat > "$WORK/bin/launchctl" <<'EOF'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >> "${LAUNCHCTL_LOG:?}"
+case "${1:-}" in
+  list) exit 1 ;;
+  bootstrap|load|bootout|remove) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$WORK/bin/launchctl"
 cat > "$WORK/bin/codex" <<'EOF'
 #!/usr/bin/env bash
-set -eu
+set -u
+# Interactive Codex now receives its prompt as a positional arg (no stdin pipe),
+# so record the full argv (prompt included) for the launch assertions.
 printf '%s\n' "$*" >> "${CODEX_ARGV_LOG:?}"
-cat >> "${CODEX_STDIN_LOG:?}"
-printf '\n' >> "${CODEX_STDIN_LOG:?}"
 printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread"}'
 EOF
 chmod +x "$WORK/bin/codex"
 
 R="$WORK/repo"; mkdir -p "$R"; (cd "$R" && git init -q && git config user.email t@t && git config user.name t && echo hi > f && git add f && git commit -qm init)
 cd "$R"
-ENV="HERDR_LOG=$WORK/herdr.log CODEX_ARGV_LOG=$WORK/codex.argv CODEX_STDIN_LOG=$WORK/codex.stdin PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+mkdir -p "$WORK/home"
+ENV="HOME=$WORK/home HERDR_LOG=$WORK/herdr.log LAUNCHCTL_LOG=$WORK/launchctl.log CODEX_ARGV_LOG=$WORK/codex.argv PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
 eval "$ENV \"$CANOPY\" init >/dev/null 2>&1"
 ID="$(eval "$ENV \"$CANOPY\" task add 'interactive worker' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $ID brief 'do the work' >/dev/null 2>&1"
@@ -102,6 +114,10 @@ grep -q 'tab create.*--workspace ws-existing' "$WORK/herdr.log" && ok 'tab reuse
 grep -q -- 'agent start claude.*claude --dangerously-skip-permissions' "$WORK/herdr.log" && ok 'Claude adapter launches Claude' || bad 'Claude adapter argv wrong'
 grep -q -- 'agent start claude.*--dangerously-bypass-approvals-and-sandbox' "$WORK/herdr.log" && bad 'Claude adapter should not get Codex bypass' || ok 'Claude adapter unchanged'
 grep -q -- 'tab create.*--label t1 · Claude' "$WORK/herdr.log" && ok 'Claude tab label includes backend' || bad 'Claude tab label wrong'
+ls "$R/.canopy/herdr-watchers/"*.plist >/dev/null 2>&1 && ok 'Claude start writes Herdr terminal watcher plist' || bad 'Herdr terminal watcher plist missing'
+grep -q 'herdr supervise "t1" "pane-claude" "tab-1" "herdr-claude" "claude"' "$R/.canopy/herdr-watchers/"*.plist \
+  && ok 'Herdr watcher records task and pane identity' || bad 'Herdr watcher identity missing'
+grep -q 'bootstrap gui/' "$WORK/launchctl.log" && ok 'Herdr watcher is launchd armed' || bad 'Herdr watcher was not launchd armed'
 eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID >/dev/null 2>&1"
 [ "$(grep -c 'agent start claude' "$WORK/herdr.log")" = 1 ] && ok 'duplicate start does not relaunch' || bad 'duplicate worker launched'
 eval "$ENV \"$CANOPY\" task set $ID herdr_agent_session_id 'session id with spaces' >/dev/null 2>&1"
@@ -123,22 +139,23 @@ TF2="$R/.canopy/tasks/$ID2.json"
 [ "$(jq -r .herdr_pane_id "$TF2")" = pane-codex ] && ok 'Codex pane id persisted' || bad 'Codex pane id missing'
 jq -e '.herdr_tab_id | startswith("rpc-") | not' "$TF2" >/dev/null && ok 'Codex ignores RPC tab id' || bad 'Codex stored RPC tab id'
 jq -e '.herdr_pane_id | startswith("rpc-") | not' "$TF2" >/dev/null && ok 'Codex ignores RPC pane id' || bad 'Codex stored RPC pane id'
-grep -q -- 'agent start codex.*codex .* exec --json' "$WORK/herdr.log" && ok 'Codex adapter launches Codex' || bad 'Codex adapter argv wrong'
+grep -q -- 'agent start codex.*-- codex -s workspace-write' "$WORK/herdr.log" && ok 'Codex adapter launches interactive Codex' || bad 'Codex adapter argv wrong'
+grep -q -- 'agent start codex.* exec --json' "$WORK/herdr.log" && bad 'Codex adapter still uses headless exec' || ok 'Codex adapter no longer runs headless exec'
 CODEX_START_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_START_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr start has one bypass flag' || bad 'Codex Herdr start bypass count wrong'
 printf '%s\n' "$CODEX_START_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr start should not pass approval flag' || ok 'Codex Herdr start omits approval flag'
-grep -q 'Task t2: codex worker' "$WORK/codex.stdin" && ok 'Codex Herdr start stdin has task title' || bad 'Codex Herdr start stdin missing title'
-grep -q 'do codex work' "$WORK/codex.stdin" && ok 'Codex Herdr start stdin has brief' || bad 'Codex Herdr start stdin missing brief'
+grep -q 'Task t2: codex worker' "$WORK/codex.argv" && ok 'Codex Herdr start prompt has task title' || bad 'Codex Herdr start prompt missing title'
+grep -q 'do codex work' "$WORK/codex.argv" && ok 'Codex Herdr start prompt has brief' || bad 'Codex Herdr start prompt missing brief'
 grep -q -- 'tab create.*--label t2 · Codex' "$WORK/herdr.log" && ok 'Codex tab label includes backend' || bad 'Codex tab label wrong'
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 'route added, tests next' >/dev/null 2>&1"
-: > "$WORK/codex.stdin"
+: > "$WORK/codex.argv"
 eval "$ENV HERDR_PANE_GET_FAIL=pane-codex \"$CANOPY\" worker resume --workspace ws-existing $ID2 >/dev/null 2>&1" && ok 'Codex Herdr resume relaunches stale pane' || bad 'Codex Herdr resume failed'
 CODEX_RESUME_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_RESUME_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr resume has one bypass flag' || bad 'Codex Herdr resume bypass count wrong'
 printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr resume should not pass approval flag' || ok 'Codex Herdr resume omits approval flag'
-grep -q 'Task t2: codex worker' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has task title' || bad 'Codex Herdr resume stdin missing title'
-grep -q 'do codex work' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has brief' || bad 'Codex Herdr resume stdin missing brief'
-grep -q 'route added, tests next' "$WORK/codex.stdin" && ok 'Codex Herdr resume stdin has checkpoint' || bad 'Codex Herdr resume stdin missing checkpoint'
+grep -q 'Task t2: codex worker' "$WORK/codex.argv" && ok 'Codex Herdr resume prompt has task title' || bad 'Codex Herdr resume prompt missing title'
+grep -q 'do codex work' "$WORK/codex.argv" && ok 'Codex Herdr resume prompt has brief' || bad 'Codex Herdr resume prompt missing brief'
+grep -q 'route added, tests next' "$WORK/codex.argv" && ok 'Codex Herdr resume prompt has checkpoint' || bad 'Codex Herdr resume prompt missing checkpoint'
 STATUS="$(eval "$ENV \"$CANOPY\" worker status $ID2 2>/dev/null")"
 printf '%s\n' "$STATUS" | jq -e '.task=="t2" and .backend=="codex" and .state=="working" and .summary=="bounded worker summary" and .full_context=="canopy worker read t2"' >/dev/null \
   && ok 'worker status is bounded structured data' || bad 'worker status is not structured or bounded'
@@ -158,7 +175,7 @@ eval "$ENV \"$CANOPY\" task checkpoint $ID 'continue in Codex' >/dev/null 2>&1"
 eval "$ENV HERDR_TAB_N=3 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID >/dev/null 2>&1" && ok 'Claude task resumes through Codex' || bad 'Claude-to-Codex resume failed'
 [ "$(jq -r .herdr_pane_id "$TF")" = pane-codex ] && ok 'backend switch replaces persisted pane' || bad 'backend switch reused old pane'
 [ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = 3 ] && ok 'backend switch starts requested backend' || bad 'backend switch did not start Codex'
-grep -q 'continue in Codex' "$WORK/codex.stdin" && ok 'Claude-to-Codex resume carries checkpoint' || bad 'Claude-to-Codex resume lost checkpoint'
+grep -q 'continue in Codex' "$WORK/codex.argv" && ok 'Claude-to-Codex resume carries checkpoint' || bad 'Claude-to-Codex resume lost checkpoint'
 grep -q 'pane send-keys pane-claude CTRL-C' "$WORK/herdr.log" && ok 'backend switch stops old pane' || bad 'backend switch left old pane running'
 grep -q 'pane close pane-claude' "$WORK/herdr.log" && ok 'backend switch closes old pane' || bad 'backend switch left old pane open'
 grep -q 'tab close tab-1' "$WORK/herdr.log" && ok 'backend switch closes old tab' || bad 'backend switch left old tab open'
@@ -317,6 +334,24 @@ eval "$ENV HERDR_TAB_ONLY_TASK=$ID18 \"$CANOPY\" worker stop $ID18 >/dev/null 2>
   && ok 'tab-only stop validates tab ownership' || bad 'tab-only stop skipped ownership validation'
 TAB_ERR="$(eval "$ENV HERDR_TAB_ONLY_TASK=$ID18 HERDR_MISMATCH=1 \"$CANOPY\" worker stop $ID18 2>&1 >/dev/null" || true)"
 echo "$TAB_ERR" | grep -qi 'refusing to stop' && ok 'tab-only stop rejects mismatched tab' || bad 'tab-only stop accepted mismatched tab'
+
+# bug 2: a manual stop of an ACTIVE owned worker records an 'interrupted' outcome.
+ID19="$(eval "$ENV \"$CANOPY\" task add 'manual stop interrupted' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $ID19 worktree $R >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID19 agent claude >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID19 herdr_pane_id pane-int >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task set $ID19 herdr_tab_id tab-int >/dev/null 2>&1"
+eval "$ENV \"$CANOPY\" task status $ID19 implementing >/dev/null 2>&1"
+eval "$ENV HERDR_EXPECTED_TASK=$ID19 \"$CANOPY\" worker stop $ID19 >/dev/null 2>&1" \
+  && ok 'manual stop of owned worker succeeds' || bad 'manual stop of owned worker failed'
+[ "$(jq -r .status "$R/.canopy/tasks/$ID19.json")" = interrupted ] \
+  && ok 'manual stop records interrupted status' || bad 'manual stop left status non-interrupted'
+jq -e '[.events[]|select(.task_id=="'"$ID19"'" and .status=="interrupted")]|length==1' "$R/.canopy/events/lifecycle.json" >/dev/null 2>&1 \
+  && ok 'manual stop emits one interrupted lifecycle event' || bad 'manual stop missing interrupted event'
+EV_BEFORE="$(jq -r '.events|length' "$R/.canopy/events/lifecycle.json")"
+eval "$ENV HERDR_EXPECTED_TASK=$ID19 \"$CANOPY\" worker stop $ID19 >/dev/null 2>&1" || true
+[ "$(jq -r '.events|length' "$R/.canopy/events/lifecycle.json")" = "$EV_BEFORE" ] \
+  && ok 'stopping an already-terminal worker adds no event' || bad 'second stop duplicated interrupted event'
 
 R2="$WORK/no-context"; mkdir -p "$R2"; (cd "$R2" && git init -q && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -qm init && eval "$ENV \"$CANOPY\" init >/dev/null 2>&1")
 ID3="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add no-context 2>/dev/null")"

@@ -5,6 +5,8 @@
 #   { version, updated, mode: yolo|guided, seq, tasks: [ {id,title,status,worktree,branch,pr,worker_session,agent} ] }
 # tasks/<id>.json (full detail):
 #   { id,title,brief,status,worktree,branch,pr,agent,worker_session,worker_pid,worker_log, log:[{t,msg}] }
+# events/lifecycle.json:
+#   durable one-shot terminal worker events, consumed by the next Canopy turn.
 
 # --- init -------------------------------------------------------------------
 canopy_init() {
@@ -67,6 +69,84 @@ _gitignore_add() {
 
 # --- helpers ----------------------------------------------------------------
 _assert_task() { [ -f "$(task_file "$1")" ] || die "no such task: $1"; }
+_status_terminal() { case "$1" in done|failed|blocked|interrupted) return 0 ;; *) return 1 ;; esac; }
+
+_lifecycle_init() {
+  local ef; ef="$(lifecycle_file)"
+  mkdir -p "$(events_dir)"
+  [ -f "$ef" ] || printf '%s\n' '{"version":1,"events":[]}' | write_atomic "$ef"
+}
+
+# task_lifecycle_event <id> <terminal-status> [reason]
+# Returns 0 only when it appended a new durable transition.
+task_lifecycle_event() {
+  require_canopy; need jq
+  local id="${1:?task id}" status="${2:?status}" reason="${3:-status changed}" tf ef now checkpoint pane tab sid ws agent gen key exists
+  _assert_task "$id"; _status_terminal "$status" || return 1
+  tf="$(task_file "$id")"; _lifecycle_init; ef="$(lifecycle_file)"; now="$(_c_ts)"
+  checkpoint="$(jq -r '.checkpoint.note // empty' "$tf")"
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
+  tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
+  ws="$(jq -r '.herdr_workspace_id // empty' "$tf")"
+  agent="$(jq -r '.agent // empty' "$tf")"
+  sid="$(jq -r '.herdr_agent_session_id // .worker_session // empty' "$tf")"
+  # The generation is bumped each time the worker starts a new active phase (start,
+  # resume, or an observed exit from a terminal state). Including it in the dedupe
+  # key lets a genuine LATER transition into the same terminal state on the same
+  # pane/session wake the orchestrator again, while a repeated probe of the SAME
+  # continuous terminal state (same generation) stays deduplicated.
+  gen="$(jq -r '.herdr_lifecycle_gen // 0' "$tf")"
+  key="${id}|${status}|${pane}|${tab}|${sid}|${gen}"
+  exists="$(jq -r --arg key "$key" 'any(.events[]?; .key == $key)' "$ef")"
+  [ "$exists" = true ] && return 1
+  jq --arg key "$key" --arg id "$id" --arg status "$status" --arg reason "$reason" \
+     --arg ws "$ws" --arg pane "$pane" --arg tab "$tab" --arg sid "$sid" --arg agent "$agent" \
+     --arg checkpoint "$checkpoint" --arg now "$now" '
+    .events += [{
+      key:$key, task_id:$id, status:$status, reason:$reason,
+      workspace_id:$ws, pane_id:$pane, tab_id:$tab, session_id:$sid, agent:$agent,
+      checkpoint:$checkpoint, timestamp:$now, consumed_at:null
+    }]
+  ' "$ef" | write_atomic "$ef"
+  return 0
+}
+
+task_lifecycle_list() {
+  require_canopy; need jq; _lifecycle_init
+  jq -c '.events[] | select(.consumed_at == null)' "$(lifecycle_file)"
+}
+
+task_lifecycle_consume() {
+  require_canopy; need jq; _lifecycle_init
+  local ef out now key; ef="$(lifecycle_file)"; now="$(_c_ts)"
+  out="$(jq -c '.events[] | select(.consumed_at == null)' "$ef" | head -1)"
+  [ -n "$out" ] || return 1
+  key="$(printf '%s\n' "$out" | jq -r '.key')"
+  jq --arg key "$key" --arg now "$now" '
+    .events |= map(if .key == $key and .consumed_at == null then .consumed_at=$now else . end)
+  ' "$ef" | write_atomic "$ef"
+  printf '%s\n' "$out"
+}
+
+canopy_events() {
+  local sub="${1:-list}" timeout waited interval
+  shift || true
+  case "$sub" in
+    list) task_lifecycle_list ;;
+    consume) task_lifecycle_consume ;;
+    wait)
+      timeout="${1:-60}"; interval=1; waited=0
+      task_lifecycle_consume && return 0
+      while [ "$waited" -lt "$timeout" ]; do
+        sleep "$interval"
+        waited=$((waited + interval))
+        task_lifecycle_consume && return 0
+      done
+      return 1 ;;
+    -h|--help) printf '%s\n' 'usage: canopy events [list|consume|wait [seconds]]' ;;
+    *) die "unknown 'events' subcommand: $sub" ;;
+  esac
+}
 
 # --- tasks ------------------------------------------------------------------
 # task_add <title...> -> prints new id on stdout
@@ -118,10 +198,13 @@ task_status() {
   require_canopy
   local id="${1:?task id}" st="${2:?status}"
   case "$st" in
-    planning|implementing|documenting|checking|reviewing|pr-open|merged|done|blocked) ;;
+    planning|implementing|documenting|checking|reviewing|pr-open|merged|done|failed|blocked|interrupted) ;;
     *) die "invalid status: $st" ;;
   esac
   task_set "$id" status "$st"
+  if _status_terminal "$st"; then
+    task_lifecycle_event "$id" "$st" "task status set to $st" >/dev/null || true
+  fi
 }
 
 # task_checkpoint <id> <note...>  (record where the worker "left off" — for recovery)

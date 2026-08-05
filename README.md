@@ -82,7 +82,7 @@ git clone https://github.com/rhyumiranda/canopy.git && cd canopy
 ./bin/canopy setup                     # agents/commands/hooks -> ~/.claude; a CLI snapshot -> ~/.local/share/canopy; canopy -> PATH
 ./bin/canopy setup --channel codex-preview
 export PATH="$HOME/.local/bin:$PATH"   # if it isn't already
-canopy watch install                   # optional (macOS): auto-closes tasks on merge.
+canopy watch install                   # optional (macOS): auto-closes tasks on merge and records Herdr terminal events.
                                        # writes a launchd plist; run the printed launchctl command to load it.
                                        # (Linux: schedule `canopy watch once` via cron instead.)
 ```
@@ -106,7 +106,7 @@ canopy start --codex                   # opens Codex AS the orchestrator
 
 `canopy start --codex` defaults unspecified workers to interactive Codex panes in an existing Herdr workspace. Claude remains the default when Claude is the orchestrator. Use `--agent claude` to choose a backend, or explicit `--headless`/`worker spawn` for detached work. Canopy never creates a Herdr workspace; pass `--workspace <id>` when discovery cannot use the current pane.
 
-Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. The detached `worker spawn` path remains available for both Claude and Codex.
+Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Both backends launch as a steerable interactive session seeded with the task prompt (Codex gets its prompt as the TUI's initial message, not a one-shot headless run). Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. Each Herdr worker also gets a one-shot launchd supervisor keyed to its task, pane, tab, and agent session; it records terminal outcomes (`done`, `failed`, `blocked`, `interrupted`) as durable lifecycle events without closing user tabs or creating workspaces. A manual `canopy worker stop` of a still-active worker also records an `interrupted` outcome. Lifecycle events dedupe per active phase: a repeated probe of the same continuous terminal state is suppressed, but once a worker leaves a terminal state (or is restarted/resumed) a later re-entry into the same state on the same pane/session wakes the orchestrator again. The detached `worker spawn` path remains available for both Claude and Codex.
 
 **Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
@@ -128,6 +128,8 @@ canopy worker status "$id"               # bounded JSON summary + read command
 canopy worker read "$id"                 # fuller bounded conversation/context
 canopy worker resume --agent codex "$id" # continue a Claude task in Codex; reuses its saved Herdr workspace
 canopy worker close "$id"               # requires ready_for_review + passing checks
+canopy events consume                  # one pending terminal worker/PR event, then mark consumed
+canopy events wait 30                  # bounded one-shot wait; not a supervisor loop
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
 canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
@@ -145,9 +147,9 @@ canopy status                          # the board
 | Codex skill | `$scribe` | Record a durable project fact from Codex. Installed by `canopy setup`. |
 | Codex skill | `$hotfix` | Start the urgent Canopy hotfix path from Codex. Installed by `canopy setup`. |
 
-Resuming after a `/clear`? `canopy recover` re-spawns each in-flight worker from its last checkpoint — continue, don't restart. Herdr resume uses an explicit `--workspace` first, then the task's saved `herdr_workspace_id`, then normal global/current discovery. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly. `worker status` and `worker read` reject legacy Herdr IDs until that reconciliation records a backend.
+Resuming after a `/clear`? `canopy recover` first consumes durable terminal events from `.canopy/events/lifecycle.json`, then re-spawns in-flight workers from their last checkpoint — continue, don't restart. Herdr resume uses an explicit `--workspace` first, then the task's saved `herdr_workspace_id`, then normal global/current discovery. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly. `worker status` and `worker read` reject legacy Herdr IDs until that reconciliation records a backend. A live Herdr supervisor pane may get a best-effort `agent send` and Herdr/macOS notification when a watcher sees a new terminal event, but a cleared/exited Codex session cannot be woken by a file alone. The durable event is the reliable fallback for the next `canopy recover` or `canopy events consume`.
 
-Full CLI: `init · start · status · task · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
+Full CLI: `init · start · status · task · events · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
 
 **Integrating on a non-default branch?** If your repo merges into `develop` (not `main`), set it once — `canopy base develop` (or `canopy init --base develop`). Every worktree is then cut from a *fresh* copy of that branch and every PR targets it, so work never anchors to a stale `main`. `canopy base` prints the current one.
 

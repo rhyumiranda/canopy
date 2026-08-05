@@ -18,15 +18,21 @@ canopy_recover_list() {
 # canopy recover [<id>]  -> print a resume-brief for in-flight task(s)
 canopy_recover() {
   require_canopy; need jq; need git
-  local ids
+  local ids ev saw_event=0
   if [ "${1:-}" = "list" ]; then canopy_recover_list; return 0; fi
 
   # Redundancy for the merge-watcher (Layers 1 & 2): on every startup/recover,
   # reconcile merged PRs ourselves — this runs in the session's permission context,
   # so merges are caught even if the background watcher is dead or TCC-blocked —
   # and re-arm the daemon if it dropped. Best-effort; never blocks recovery.
-  if command -v gh-axi >/dev/null 2>&1; then canopy_watch_once >/dev/null 2>&1 || true; fi
+  canopy_watch_once >/dev/null 2>&1 || true
   canopy_watch_ensure >/dev/null 2>&1 || true
+
+  while ev="$(task_lifecycle_consume 2>/dev/null)"; do
+    saw_event=1
+    printf '%s\n' "$ev" | jq -r '"### CANOPY EVENT task \(.task_id) [\(.status)]\nreason: \(.reason)\npane:   \(.pane_id // "")\ntab:    \(.tab_id // "")\nsession:\(.session_id // "")\ncheckpoint: \(.checkpoint // "")\nat: \(.timestamp)\n"'
+  done
+  [ "$saw_event" = 1 ] && printf '\n'
 
   if [ $# -gt 0 ]; then ids="$1"; else ids="$(canopy_recover_list)"; fi
   if [ -z "$ids" ]; then info "recover: nothing in flight"; return 0; fi
