@@ -3,6 +3,20 @@
 
 _herdr_bin() { printf '%s\n' "${CANOPY_HERDR_BIN:-herdr}"; }
 _herdr_need() { need "$(basename "$(_herdr_bin)")"; }
+
+# _herdr_agent_submit <pane> <text> — deliver text to a live agent pane AND submit it.
+# `herdr agent send` only WRITES the text into the agent's input box (a paste); with
+# no following Enter the message sits unsent, silently no-op'ing orchestrator steering
+# and causing phantom stalls (multi-line text especially lands as one unsent block).
+# The submit is an explicit Enter keystroke: the pty delivers it strictly after the
+# paste bytes, so a single Enter submits the whole message. herdr stdout (RPC JSON) is
+# routed to stderr so callers' machine-readable stdout stays clean. Verified against a
+# live Claude TUI with multi-line text (test/herdr_test.sh: "send submits the message").
+_herdr_agent_submit() {
+  local pane="$1" text="$2"
+  "$(_herdr_bin)" agent send "$pane" "$text" >&2 || return 1
+  "$(_herdr_bin)" pane send-keys "$pane" Enter >&2
+}
 _herdr_state_file() { printf '%s/herdr.json\n' "$(canopy_dir)"; }
 _herdr_agent_label() { printf 'canopy-%s-%s\n' "$1" "$2"; }
 
@@ -544,7 +558,7 @@ _herdr_start() {
     if [ "$resuming" = 1 ]; then
       checkpoint="$(jq -r '.checkpoint.note // empty' "$tf" 2>/dev/null || true)"
       if [ -n "$checkpoint" ]; then
-        "$(_herdr_bin)" agent send "$pane" "Continue from checkpoint: $checkpoint" \
+        _herdr_agent_submit "$pane" "Continue from checkpoint: $checkpoint" \
           || die "task $id could not deliver its checkpoint to the live Herdr pane"
         task_log "$id" "delivered checkpoint to reused Herdr pane $pane"
       fi
@@ -739,7 +753,7 @@ canopy_worker_send() {
     || die "task $id Herdr pane identity does not match; refusing to send"
   [ -z "$tab" ] || _herdr_id_matches tab "$tab" "$(_herdr_tab_label "$id" "$agent")" \
     || die "task $id Herdr tab identity does not match; refusing to send"
-  "$(_herdr_bin)" agent send "$pane" "$text" >&2
+  _herdr_agent_submit "$pane" "$text"
   task_log "$id" "sent message to Herdr pane $pane"
   toon_obj task "$id" pane "$pane" sent ok
   toon_help "Run \`canopy worker status $id\` to see the worker's response"
