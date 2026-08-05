@@ -26,6 +26,8 @@ _worker_agent_flag() {
 
 _worker_spawn_claude() {
   local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid
+  # Pre-trust the leased worktree so claude never stalls on the trust dialog.
+  _claude_trust_path "$path"
   sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
             --append-system-prompt "$(_agent_body worker)" \
             "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
@@ -151,6 +153,8 @@ ${issues}"
   case "$agent" in
     claude)
       need claude
+      # Pre-trust the leased worktree so claude never stalls on the trust dialog.
+      _claude_trust_path "$path"
       sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
                 --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
       [ -n "$sid" ] || die "could not read fix-worker session id"
