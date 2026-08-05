@@ -5,6 +5,40 @@ _herdr_bin() { printf '%s\n' "${CANOPY_HERDR_BIN:-herdr}"; }
 _herdr_need() { need "$(basename "$(_herdr_bin)")"; }
 _herdr_state_file() { printf '%s/herdr.json\n' "$(canopy_dir)"; }
 _herdr_agent_label() { printf 'canopy-%s-%s\n' "$1" "$2"; }
+
+# _herdr_slug_word <text> — lowercase and strip to [a-z0-9] (drops spaces/punct).
+# Kept deliberately tiny and awk-free so it parses identically on macOS bash 3.2
+# and CI's mawk-less environment.
+_herdr_slug_word() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'; }
+
+# _herdr_agent_name <id> — the unique NAME positional for `herdr agent start`.
+# Herdr enforces GLOBAL uniqueness on that positional, so if every worker started
+# under the literal backend name ("claude"/"codex") only one claude (and one codex)
+# worker could run at a time across ALL workspaces — a second start failed with
+# agent_name_taken. Derive a human-readable slug from the task's conventional-commit
+# title (type = verb, scope word = noun; e.g. 'fix(herdr): ...' -> cp-fix-herdr) and
+# suffix the task id, which is itself unique, so the name is both collision-proof and
+# stable across restarts. This is the uniqueness key; _herdr_agent_label stays the
+# id+backend display/matching identity (pane relabel + ownership checks).
+_herdr_agent_name() {
+  local id="$1" title head subject verb noun slug
+  title="$(jq -r '.title // empty' "$(task_file "$id")" 2>/dev/null || true)"
+  head="${title%%:*}"            # "fix(herdr)"  — the part before the first colon
+  subject=""
+  [ "$head" = "$title" ] || subject="${title#*: }"   # subject present only when a colon split
+  verb="${head%%(*}"; verb="${verb%% *}"             # leading word: the commit type
+  if [ "$head" != "${head#*(}" ]; then
+    noun="${head#*(}"; noun="${noun%%)*}"            # scope inside the parens
+  else
+    noun="${subject%% *}"                            # else the first word of the subject
+  fi
+  verb="$(_herdr_slug_word "$verb")"; noun="$(_herdr_slug_word "$noun")"
+  slug="cp"
+  [ -z "$verb" ] || slug="$slug-$verb"
+  [ -z "$noun" ] || slug="$slug-$noun"
+  [ "$slug" = cp ] && slug="cp-worker"
+  printf '%s-%s\n' "$slug" "$id"
+}
 _herdr_tab_label() {
   local backend
   backend="$(_canopy_agent_validate "$2")"
@@ -346,15 +380,15 @@ _herdr_report() {
 }
 
 _herdr_launch_claude() {
-  local id="$1" path="$2" tab="$3" prompt="$4"
+  local id="$1" path="$2" tab="$3" prompt="$4" name="$5"
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
-  "$(_herdr_bin)" agent start claude --cwd "$path" --tab "$tab" --no-focus -- \
+  "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
     claude --dangerously-skip-permissions --append-system-prompt "$(_agent_body worker)" "$prompt"
 }
 
 _herdr_launch_codex() {
-  local id="$1" path="$2" tab="$3" prompt="$4"
+  local id="$1" path="$2" tab="$3" prompt="$4" name="$5"
   local -a codex_args
   codex_args=(-s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -C "$path")
   _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
@@ -364,15 +398,18 @@ _herdr_launch_codex() {
   # the tab was never a steerable interactive worker — and on any early exit the
   # seeded prompt died with it. Passing the prompt as codex's argument delivers it
   # to a durable interactive session instead.
-  "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
+  "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
     codex "${codex_args[@]}" "$prompt"
 }
 
 _herdr_launch() {
   local agent="$1"; shift
+  # $1 is the task id; derive the unique agent-start name once and hand it to the
+  # backend adapter as its trailing arg. The launched binary after `--` is untouched.
+  local name; name="$(_herdr_agent_name "$1")"
   case "$agent" in
-    claude) _herdr_launch_claude "$@" ;;
-    codex)  _herdr_launch_codex "$@" ;;
+    claude) _herdr_launch_claude "$@" "$name" ;;
+    codex)  _herdr_launch_codex "$@" "$name" ;;
     *) die "unknown agent runtime: $agent (use claude or codex)" ;;
   esac
 }

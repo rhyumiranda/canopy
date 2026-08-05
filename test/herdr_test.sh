@@ -55,7 +55,14 @@ case "$1 ${2:-}" in
       *) printf '%s\n' '{"result":{"pane":{"agent":"canopy-t4-claude"}}}' ;;
     esac ;;
   agent\ start)
-    if [ "${3:-}" = codex ]; then
+    # The NAME positional is now a unique per-task slug, not the literal backend, so
+    # pick the backend from the launched binary (the token right after `--`) instead.
+    bin=""; seen_dd=0
+    for a in "$@"; do
+      [ "$seen_dd" = 1 ] && { bin="$a"; break; }
+      [ "$a" = "--" ] && seen_dd=1
+    done
+    if [ "$bin" = codex ]; then
       while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
       [ "${1:-}" = "--" ] && shift
       "$@" >/dev/null 2>&1 || exit $?
@@ -111,15 +118,15 @@ jq -e '.herdr_tab_id | startswith("rpc-") | not' "$TF" >/dev/null && ok 'Claude 
 jq -e '.herdr_pane_id | startswith("rpc-") | not' "$TF" >/dev/null && ok 'Claude ignores RPC pane id' || bad 'Claude stored RPC pane id'
 [ "$(grep -c 'workspace create' "$WORK/herdr.log")" = 0 ] && ok 'never creates a workspace' || bad 'workspace was created'
 grep -q 'tab create.*--workspace ws-existing' "$WORK/herdr.log" && ok 'tab reuses existing workspace' || bad 'tab did not use workspace'
-grep -q -- 'agent start claude.*claude --dangerously-skip-permissions' "$WORK/herdr.log" && ok 'Claude adapter launches Claude' || bad 'Claude adapter argv wrong'
-grep -q -- 'agent start claude.*--dangerously-bypass-approvals-and-sandbox' "$WORK/herdr.log" && bad 'Claude adapter should not get Codex bypass' || ok 'Claude adapter unchanged'
+grep -q -- 'agent start cp-interactive-t1 .* -- claude --dangerously-skip-permissions' "$WORK/herdr.log" && ok 'Claude adapter launches Claude under a unique agent name' || bad 'Claude adapter argv wrong'
+grep -q -- 'agent start .* -- claude .*--dangerously-bypass-approvals-and-sandbox' "$WORK/herdr.log" && bad 'Claude adapter should not get Codex bypass' || ok 'Claude adapter unchanged'
 grep -q -- 'tab create.*--label t1 · Claude' "$WORK/herdr.log" && ok 'Claude tab label includes backend' || bad 'Claude tab label wrong'
 ls "$R/.canopy/herdr-watchers/"*.plist >/dev/null 2>&1 && ok 'Claude start writes Herdr terminal watcher plist' || bad 'Herdr terminal watcher plist missing'
 grep -q 'herdr supervise "t1" "pane-claude" "tab-1" "herdr-claude" "claude"' "$R/.canopy/herdr-watchers/"*.plist \
   && ok 'Herdr watcher records task and pane identity' || bad 'Herdr watcher identity missing'
 grep -q 'bootstrap gui/' "$WORK/launchctl.log" && ok 'Herdr watcher is launchd armed' || bad 'Herdr watcher was not launchd armed'
 eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $ID >/dev/null 2>&1"
-[ "$(grep -c 'agent start claude' "$WORK/herdr.log")" = 1 ] && ok 'duplicate start does not relaunch' || bad 'duplicate worker launched'
+[ "$(grep -c 'agent start cp-interactive-t1' "$WORK/herdr.log")" = 1 ] && ok 'duplicate start does not relaunch' || bad 'duplicate worker launched'
 eval "$ENV \"$CANOPY\" task set $ID herdr_agent_session_id 'session id with spaces' >/dev/null 2>&1"
 : > "$WORK/report.argv"
 eval "$ENV HERDR_ARGV_LOG=$WORK/report.argv \"$CANOPY\" worker resume --workspace ws-existing $ID >/dev/null 2>&1" \
@@ -139,18 +146,21 @@ TF2="$R/.canopy/tasks/$ID2.json"
 [ "$(jq -r .herdr_pane_id "$TF2")" = pane-codex ] && ok 'Codex pane id persisted' || bad 'Codex pane id missing'
 jq -e '.herdr_tab_id | startswith("rpc-") | not' "$TF2" >/dev/null && ok 'Codex ignores RPC tab id' || bad 'Codex stored RPC tab id'
 jq -e '.herdr_pane_id | startswith("rpc-") | not' "$TF2" >/dev/null && ok 'Codex ignores RPC pane id' || bad 'Codex stored RPC pane id'
-grep -q -- 'agent start codex.*-- codex -s workspace-write' "$WORK/herdr.log" && ok 'Codex adapter launches interactive Codex' || bad 'Codex adapter argv wrong'
-grep -q -- 'agent start codex.* exec --json' "$WORK/herdr.log" && bad 'Codex adapter still uses headless exec' || ok 'Codex adapter no longer runs headless exec'
-CODEX_START_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
+grep -q -- 'agent start cp-codex-t2 .* -- codex -s workspace-write' "$WORK/herdr.log" && ok 'Codex adapter launches interactive Codex under a unique agent name' || bad 'Codex adapter argv wrong'
+grep -q -- 'agent start .* -- codex .* exec --json' "$WORK/herdr.log" && bad 'Codex adapter still uses headless exec' || ok 'Codex adapter no longer runs headless exec'
+CODEX_START_LINE="$(grep 'agent start cp-codex-t2' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_START_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr start has one bypass flag' || bad 'Codex Herdr start bypass count wrong'
 printf '%s\n' "$CODEX_START_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr start should not pass approval flag' || ok 'Codex Herdr start omits approval flag'
 grep -q 'Task t2: codex worker' "$WORK/codex.argv" && ok 'Codex Herdr start prompt has task title' || bad 'Codex Herdr start prompt missing title'
 grep -q 'do codex work' "$WORK/codex.argv" && ok 'Codex Herdr start prompt has brief' || bad 'Codex Herdr start prompt missing brief'
 grep -q -- 'tab create.*--label t2 · Codex' "$WORK/herdr.log" && ok 'Codex tab label includes backend' || bad 'Codex tab label wrong'
+# Core parallelism fix: distinct tasks must start under distinct global Herdr names.
+grep -q -- 'agent start cp-interactive-t1 ' "$WORK/herdr.log" && grep -q -- 'agent start cp-codex-t2 ' "$WORK/herdr.log" \
+  && ok 'each task starts under its own unique human-readable agent name' || bad 'workers did not get unique per-task agent names'
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 'route added, tests next' >/dev/null 2>&1"
 : > "$WORK/codex.argv"
 eval "$ENV HERDR_PANE_GET_FAIL=pane-codex \"$CANOPY\" worker resume --workspace ws-existing $ID2 >/dev/null 2>&1" && ok 'Codex Herdr resume relaunches stale pane' || bad 'Codex Herdr resume failed'
-CODEX_RESUME_LINE="$(grep 'agent start codex' "$WORK/herdr.log" | tail -1)"
+CODEX_RESUME_LINE="$(grep 'agent start cp-codex-t2' "$WORK/herdr.log" | tail -1)"
 [ "$(printf '%s\n' "$CODEX_RESUME_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok 'Codex Herdr resume has one bypass flag' || bad 'Codex Herdr resume bypass count wrong'
 printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad 'Codex Herdr resume should not pass approval flag' || ok 'Codex Herdr resume omits approval flag'
 grep -q 'Task t2: codex worker' "$WORK/codex.argv" && ok 'Codex Herdr resume prompt has task title' || bad 'Codex Herdr resume prompt missing title'
@@ -174,7 +184,7 @@ eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates
 eval "$ENV \"$CANOPY\" task checkpoint $ID 'continue in Codex' >/dev/null 2>&1"
 eval "$ENV HERDR_TAB_N=3 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID >/dev/null 2>&1" && ok 'Claude task resumes through Codex' || bad 'Claude-to-Codex resume failed'
 [ "$(jq -r .herdr_pane_id "$TF")" = pane-codex ] && ok 'backend switch replaces persisted pane' || bad 'backend switch reused old pane'
-[ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = 3 ] && ok 'backend switch starts requested backend' || bad 'backend switch did not start Codex'
+[ "$(grep -c 'agent start .* -- codex' "$WORK/herdr.log")" = 3 ] && ok 'backend switch starts requested backend' || bad 'backend switch did not start Codex'
 grep -q 'continue in Codex' "$WORK/codex.argv" && ok 'Claude-to-Codex resume carries checkpoint' || bad 'Claude-to-Codex resume lost checkpoint'
 grep -q 'pane send-keys pane-claude CTRL-C' "$WORK/herdr.log" && ok 'backend switch stops old pane' || bad 'backend switch left old pane running'
 grep -q 'pane close pane-claude' "$WORK/herdr.log" && ok 'backend switch closes old pane' || bad 'backend switch left old pane open'
@@ -311,12 +321,12 @@ eval "$ENV \"$CANOPY\" task set $ID15 worktree $R >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID15 agent claude >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID15 herdr_tab_id tab-old-cleanup >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" task set $ID15 herdr_pane_id pane-old-cleanup >/dev/null 2>&1"
-SWITCH_STARTS="$(grep -c 'agent start codex' "$WORK/herdr.log")"
+SWITCH_STARTS="$(grep -c 'agent start .* -- codex' "$WORK/herdr.log")"
 SWITCH_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID15 HERDR_CLOSE_TAB_FAIL=1 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID15 2>&1 >/dev/null" || true)"
 echo "$SWITCH_ERR" | grep -qi 'cleanup incomplete' && ok 'backend switch reports failed cleanup' || bad 'backend switch hid failed cleanup'
 [ "$(jq -r '.herdr_tab_id + .herdr_pane_id' "$R/.canopy/tasks/$ID15.json")" = tab-old-cleanup ] \
   && ok 'backend switch preserves only failed ID' || bad 'backend switch kept closed pane ID'
-[ "$(grep -c 'agent start codex' "$WORK/herdr.log")" = "$SWITCH_STARTS" ] \
+[ "$(grep -c 'agent start .* -- codex' "$WORK/herdr.log")" = "$SWITCH_STARTS" ] \
   && ok 'backend switch does not launch after cleanup failure' || bad 'backend switch launched after cleanup failure'
 SWITCH_ERR="$(eval "$ENV HERDR_EXPECTED_TASK=$ID15 \"$CANOPY\" worker resume --agent codex --workspace ws-existing $ID15 2>&1 >/dev/null" || true)"
 echo "$SWITCH_ERR" | grep -qi 'reconciled safely' && bad 'backend switch retry did not finish cleanup' || ok 'backend switch retries with remaining tab'
@@ -454,5 +464,19 @@ CL_OUT="$(eval "$ENV HERDR_EXPECTED_TASK=$IDC \"$CANOPY\" worker close $IDC 2>/d
 [ "$CL_RC" = 0 ] && ok "close exits 0" || bad "close exit $CL_RC"
 printf '%s' "$CL_OUT" | grep -q '^status: done' && ok "close emits status: done (TOON)" || bad "close missing status done"
 printf '%s' "$CL_OUT" | grep -q '\[canopy\]' && bad "close leaked logs to stdout" || ok "close keeps stdout clean"
+
+# agent-start name derives cp-<type>-<scope> from a conventional-commit title, and
+# colliding titles stay globally unique because the task id is always appended.
+# Kept at the very end so the two extra task adds do not renumber id-sensitive tasks.
+IDN1="$(eval "$ENV \"$CANOPY\" task add 'fix(herdr): make it parallel' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDN1 worktree $R >/dev/null 2>&1"
+eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDN1 >/dev/null 2>&1"
+grep -q -- "agent start cp-fix-herdr-$IDN1 " "$WORK/herdr.log" \
+  && ok 'agent name derives cp-verb-noun from a conventional-commit title' || bad 'agent name not derived from title'
+IDN2="$(eval "$ENV \"$CANOPY\" task add 'fix(herdr): also parallel' 2>/dev/null")"
+eval "$ENV \"$CANOPY\" task set $IDN2 worktree $R >/dev/null 2>&1"
+eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDN2 >/dev/null 2>&1"
+grep -q -- "agent start cp-fix-herdr-$IDN2 " "$WORK/herdr.log" && [ "$IDN1" != "$IDN2" ] \
+  && ok 'colliding titles stay unique via the task-id suffix' || bad 'colliding titles produced a duplicate agent name'
 
 printf '\n== %s passed, %s failed ==\n' "$PASS" "$FAIL"; [ "$FAIL" -eq 0 ]
