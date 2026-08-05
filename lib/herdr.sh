@@ -190,6 +190,90 @@ _herdr_probe_state() {
   return 1
 }
 
+# _herdr_live_state <pane> — the pane's REAL live worker state, read straight from
+# `agent explain` (never the pinnable `report-agent` status, which can stale at
+# `working` after a worker idles). Prints one of: working|idle|done|blocked|
+# failed|interrupted|gone|none|unknown. `gone` = the pane no longer exists (already
+# torn down); `none` = no pane id. This is the single source of truth for the
+# "is it still working?" half of the close decision.
+_herdr_live_state() {
+  local pane="$1" out state
+  [ -n "$pane" ] || { printf '%s\n' none; return 0; }
+  if ! "$(_herdr_bin)" pane get "$pane" >/dev/null 2>&1; then
+    printf '%s\n' gone; return 0
+  fi
+  out="$($(_herdr_bin) agent explain "$pane" --json 2>/dev/null || true)"
+  state="$(printf '%s\n' "$out" | jq -r '
+    .result.agent.status // .result.agent.state //
+    .result.status // .result.state //
+    .status // .state // .agent.status // .agent.state // empty
+  ' 2>/dev/null | head -1)"
+  case "$state" in error) state=failed ;; esac
+  printf '%s\n' "${state:-unknown}"
+}
+
+# _herdr_safe_to_close <id> — the single chokepoint that decides whether a worker's
+# Herdr pane/tab may be torn down. Returns 0 (safe) ONLY when the task is truly
+# shipped (status done AND its PR merged) AND its pane's LIVE state is not working.
+# Deliberately NEVER trusts the pinnable canopy/Herdr report status for the
+# working check: a finished worker often stales at `working` there, which would
+# leave it unclosable; live `agent explain` reads the real terminal and reports
+# idle. Every refusal is logged (task log + info) so a skipped close is never
+# silent. Fails safe: unknown/unreadable live state refuses the close.
+_herdr_safe_to_close() {
+  local id="$1" tf status pr pane state
+  tf="$(task_file "$id" 2>/dev/null || true)"
+  [ -n "$tf" ] && [ -f "$tf" ] || return 1
+  status="$(jq -r '.status // empty' "$tf" 2>/dev/null || true)"
+  pr="$(jq -r '.pr // empty' "$tf" 2>/dev/null || true)"
+  if [ "$status" != done ]; then
+    _herdr_refuse_close "$id" "status=${status:-none} (not done)"; return 1
+  fi
+  if [ -z "$pr" ]; then
+    _herdr_refuse_close "$id" "no PR recorded"; return 1
+  fi
+  if declare -F _pr_is_merged >/dev/null 2>&1 && ! _pr_is_merged "$pr"; then
+    _herdr_refuse_close "$id" "PR #$pr not merged"; return 1
+  fi
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+  state="$(_herdr_live_state "$pane")"
+  case "$state" in
+    working|unknown) _herdr_refuse_close "$id" "live pane state=$state"; return 1 ;;
+  esac
+  return 0
+}
+
+_herdr_refuse_close() {
+  local id="$1" why="$2"
+  info "task $id not safe to close: $why"
+  task_log "$id" "safe-to-close refused: $why" >/dev/null 2>&1 || true
+}
+
+# _herdr_clean_one <id> — close a worker's Herdr pane/tab, but ONLY if
+# _herdr_safe_to_close approves. Returns 0 when it actually closed something, 1
+# otherwise (nothing to close, unsafe, or an incomplete Herdr teardown). Never
+# errors the caller — the merge-watcher and cleanup command must keep going.
+_herdr_clean_one() {
+  local id="$1" tf agent tab pane
+  tf="$(task_file "$id" 2>/dev/null || true)"
+  [ -n "$tf" ] && [ -f "$tf" ] || return 1
+  pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+  tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+  [ -n "$pane" ] || [ -n "$tab" ] || return 1   # nothing to close
+  _herdr_safe_to_close "$id" || return 1
+  agent="$(jq -r '.agent // empty' "$tf" 2>/dev/null || true)"
+  if [ -z "$agent" ]; then
+    _herdr_refuse_close "$id" "no backend identity"; return 1
+  fi
+  # _herdr_stop_owned re-checks pane/tab ownership before closing, so a mismatched
+  # or reassigned Herdr object is never clobbered.
+  if _herdr_stop_owned "$id" "$agent" "$tab" "$pane"; then
+    task_log "$id" "cleaned Herdr worker (done+merged, live pane not working)"
+    return 0
+  fi
+  return 1
+}
+
 # _herdr_new_phase <id> — mark a fresh active worker phase: bump the lifecycle
 # generation and forget the last observed terminal state, so the next terminal
 # outcome is treated as a new, wakeable transition even if it repeats an earlier
@@ -654,6 +738,15 @@ usage: canopy worker stop <task-id|session-id>
   -h, --help   show this help
 EOF
       ;;
+    clean) cat <<'EOF'
+usage: canopy worker clean [--all] [<task-id>]
+  Close every safe-to-close worker's Herdr tab/pane (or one named task).
+  Safe = task done AND its PR merged AND its live pane is not working.
+  A working or unshipped worker is always refused (never closed).
+  --all        sweep all workers with Herdr state
+  -h, --help   show this help
+EOF
+      ;;
   esac
 }
 
@@ -940,4 +1033,49 @@ canopy_worker_close() {
   task_log "$id" "closed Herdr worker after ready_for_review and passing checks"
   toon_obj task "$id" pane "${pane:--}" tab "${tab:--}" status done
   toon_help "Run \`canopy pr open $id\` to open the pull request"
+}
+
+# canopy worker clean [--all] [<task-id>]
+# Close every safe-to-close worker in one pass (or a single named one). "Safe"
+# is decided solely by _herdr_safe_to_close (done+merged AND live pane not
+# working), so this can never kill a working or still-unshipped worker — it
+# replaces manual pane-id surgery, which lost an unshipped worker this session.
+canopy_worker_clean() {
+  local all=0 id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help clean; return 0 ;;
+      --all) all=1 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker clean'" "valid flags: --all (--help always allowed). usage: canopy worker clean [--all] [<task-id>]" ;;
+      *) id="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker clean [--all] [<task-id>]"; break ;;
+    esac
+    shift
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
+  [ "$all" = 1 ] || [ -n "$id" ] || usage_error "missing task-id or --all" "usage: canopy worker clean [--all] [<task-id>]"
+  require_canopy; need jq; _herdr_need
+  if [ "$all" = 1 ]; then
+    # Herdr ids live only in the per-task detail files (the board omits them), so
+    # sweep those, not state.json .tasks[]. Count only tasks that actually carry
+    # Herdr state — tasks with nothing to close are neither cleaned nor skipped.
+    local f t cleaned=0 skipped=0 pane tab
+    for f in "$(tasks_dir)"/*.json; do
+      [ -e "$f" ] || continue
+      pane="$(jq -r '.herdr_pane_id // empty' "$f" 2>/dev/null || true)"
+      tab="$(jq -r '.herdr_tab_id // empty' "$f" 2>/dev/null || true)"
+      [ -n "$pane" ] || [ -n "$tab" ] || continue
+      t="$(jq -r '.id // empty' "$f" 2>/dev/null || true)"
+      [ -n "$t" ] || continue
+      if _herdr_clean_one "$t"; then cleaned=$((cleaned+1)); else skipped=$((skipped+1)); fi
+    done
+    toon_obj cleaned "$cleaned" skipped "$skipped"
+    return 0
+  fi
+  _assert_task "$id"
+  if _herdr_clean_one "$id"; then
+    toon_obj task "$id" cleaned ok
+  else
+    die "task $id is not safe to close (still working, or not done+merged); left running"
+  fi
 }

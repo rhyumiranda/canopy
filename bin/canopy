@@ -122,6 +122,7 @@ case "$cmd" in
       resume)     canopy_worker_resume "$@" ;;
       reconcile)  canopy_worker_reconcile "$@" ;;
       close)      canopy_worker_close "$@" ;;
+      clean)      canopy_worker_clean "$@" ;;
       spawn)     canopy_worker_spawn "$@" ;;
       fix)       canopy_worker_fix "$@" ;;
       logs)      canopy_worker_logs "$@" ;;

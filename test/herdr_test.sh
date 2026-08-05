@@ -401,7 +401,7 @@ ID4="$(cd "$R2" && eval "$ENV \"$CANOPY\" task add saved-workspace 2>/dev/null")
 echo "== AXI ergonomics (Option B: additive; base identity + JSON status preserved) =="
 cd "$R"
 # concise per-subcommand --help on stdout, exit 0 (AXI §10)
-for sub in start resume attach send status read reconcile close stop; do
+for sub in start resume attach send status read reconcile close clean stop; do
   H="$(eval "$ENV \"$CANOPY\" worker $sub --help 2>/dev/null")"; HRC=$?
   { [ "$HRC" = 0 ] && printf '%s' "$H" | grep -q "usage: canopy worker $sub"; } \
     && ok "worker $sub --help prints usage on stdout (exit 0)" \
