@@ -67,6 +67,38 @@ printf '%s' "$PROV" | grep -qi 'RE-REVIEW'                 && ok "provenance fla
 printf '%s' "$PROV" | grep -qi 'address review finding'    && ok "provenance lists the fix commit" || bad "provenance missing fix commit"
 eq "provenance empty for unknown prior sha" "$(_review_provenance "$W" 0000000000000000000000000000000000000000)" ''
 
+# _review_base: diff base is the CONFIGURED canopy base, not origin/HEAD (main).
+# Reproduces the incident: a task stacked on a configured base (`dev`) got reviewed
+# against main, pulling in already-merged commits — the wrong scope.
+. "$CANOPY_ROOT/lib/state.sh"   # state_base (canopy base)
+CANOPY_BIN="$CANOPY_ROOT/bin/canopy"
+RB="$(mktemp -d)"; trap 'rm -rf "$W" "$RB"' EXIT
+(
+  cd "$RB"
+  git init -q; git config user.email t@t; git config user.name t
+  echo base0 > f; git add -A; git commit -qm init; git branch -M main
+  # dev = the real integration branch tasks stack onto; main gets bloat commits.
+  git branch dev
+  echo bloat > g; git add -A; git commit -qm "bloat: merged into main, NOT in scope"
+  git checkout -q dev
+  echo devwork > h; git add -A; git commit -qm "dev: prior work already on the base"
+  git checkout -qb feat
+  echo featwork > i; git add -A; git commit -qm "feat: the only change under review"
+  # origin/HEAD points at main (the auto-detect default) to prove config wins.
+  git symbolic-ref refs/remotes/origin/HEAD refs/heads/main
+  "$CANOPY_BIN" init >/dev/null 2>&1
+  "$CANOPY_BIN" base dev >/dev/null 2>&1
+)
+DEV_TIP="$(git -C "$RB" rev-parse dev)"
+MAIN_MB="$(git -C "$RB" merge-base feat main)"
+GOT_BASE="$(cd "$RB" && git checkout -q feat && _review_base "$RB")"
+eq "review base = configured base tip (dev), not main" "$GOT_BASE" "$DEV_TIP"
+[ "$GOT_BASE" != "$MAIN_MB" ] && ok "review base is NOT the main merge-base (no bloat)" || bad "review base fell back to main"
+# The reviewed diff shows only the feature commit, none of the main-only bloat.
+DIFF="$(git -C "$RB" diff "$GOT_BASE..feat")"
+printf '%s' "$DIFF" | grep -q 'featwork' && ok "review diff contains the change under review" || bad "review diff missing the change"
+printf '%s' "$DIFF" | grep -q 'bloat'    && bad "review diff leaked already-merged bloat" || ok "review diff excludes already-merged bloat"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

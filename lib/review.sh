@@ -19,6 +19,20 @@ _default_branch() {
   echo main
 }
 
+# _review_base <worktree> -> the commit the review diff is computed against.
+# Merge-base of HEAD and the CONFIGURED canopy base (`base_branch`, which honors
+# `canopy base` / state.json `.base`), NOT `_default_branch`/origin-HEAD. Tasks
+# stack onto the configured base, so diffing against main pulls in already-merged
+# commits and hands the reviewer the wrong scope. Falls back to HEAD~1 when the
+# base branch isn't reachable. Both reviewer paths share this so they can't
+# diverge on base resolution (they once did — the codex path still said main).
+_review_base() {
+  local wt="$1"
+  git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null \
+    || git -C "$wt" rev-parse HEAD~1 2>/dev/null \
+    || echo ''
+}
+
 # pull the first JSON object out of (possibly fenced / chatty) model output
 _extract_json() {
   local raw; raw="$(cat)"
@@ -120,7 +134,7 @@ EOF
 
 _review_once_claude() {
   local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out
-  base="$(git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
+  base="$(_review_base "$wt")"
   head="$(git -C "$wt" rev-parse HEAD)"
   if [ -z "$base" ] || [ "$base" = "$head" ]; then
     echo '{"verdict":"clean","risk_level":"low","issues":[],"docs_in_sync":true,"summary":"no diff to review"}'; return
@@ -137,19 +151,22 @@ _review_once_claude() {
 
 _review_once_codex() {
   local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out schema msgf prompt model
-  base="$(git -C "$wt" merge-base HEAD "$(_default_branch "$wt")" 2>/dev/null || git -C "$wt" rev-parse HEAD~1 2>/dev/null || echo '')"
+  local -a codex_args
+  base="$(_review_base "$wt")"
   head="$(git -C "$wt" rev-parse HEAD)"
   if [ -z "$base" ] || [ "$base" = "$head" ]; then
     echo '{"verdict":"clean","risk_level":"low","risk_rationale":"no diff to review","issues":[],"docs_in_sync":true,"summary":"no diff to review"}'; return
   fi
   diff="$(git -C "$wt" diff "$base..$head")"
   [ -n "$diff" ] || { echo '{"verdict":"clean","risk_level":"low","risk_rationale":"empty diff","issues":[],"docs_in_sync":true,"summary":"empty diff"}'; return; }
-  schema="$(mktemp "${TMPDIR:-/tmp}/canopy-review-schema.XXXXXX.json")"
-  msgf="$(mktemp "${TMPDIR:-/tmp}/canopy-review-msg.XXXXXX.json")"
+  schema="$(mktemp "${TMPDIR:-/tmp}/canopy-review-schema.XXXXXX")"
+  msgf="$(mktemp "${TMPDIR:-/tmp}/canopy-review-msg.XXXXXX")"
   _review_schema > "$schema"
   prompt="$(_review_prompt "$base" "$head" "$intent" "$prov" "$diff")"
   model="$(_reviewer_model_for codex)"
-  if ! out="$( cd "$wt" && printf '%s' "$prompt" | codex -s read-only -a never -C "$wt" -m "$model" \
+  codex_args=(-s read-only -C "$wt" -m "$model")
+  _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
+  if ! out="$( cd "$wt" && printf '%s' "$prompt" | codex "${codex_args[@]}" \
       exec --output-schema "$schema" -o "$msgf" - 2>&1 )"; then
     rm -f "$schema" "$msgf"
     die "codex reviewer failed: ${out:-unknown error}"
