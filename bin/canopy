@@ -79,6 +79,8 @@ EOF
 }
 
 cmd="${1:-}"; shift || true
+# Refuse orchestrator-only commands when running as a worker (shared .canopy).
+canopy_role_guard "$cmd" "${1:-}"
 case "$cmd" in
   init)          canopy_init "$@" ;;
   start)         canopy_start "$@" ;;

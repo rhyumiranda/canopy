@@ -1,5 +1,5 @@
 {
-  "_comment": "Canopy hooks. `canopy setup` merges this into ~/.claude/settings.json and copies hooks/ to ~/.claude/canopy/hooks/. SessionStart re-injects the full state digest only when CANOPY_ROLE=orchestrator (any other session in a canopy repo gets just a one-line hint); PreToolUse guards (only active when CANOPY_ROLE=orchestrator) block the orchestrator from writing to the project tree and from opening PRs directly with gh/gh-axi (use 'canopy pr open').",
+  "_comment": "Canopy hooks. `canopy setup` merges this into ~/.claude/settings.json and copies hooks/ to ~/.claude/canopy/hooks/. SessionStart re-injects the full state digest only when CANOPY_ROLE=orchestrator (any other session in a canopy repo gets just a one-line hint). guard-project-write blocks the orchestrator (CANOPY_ROLE=orchestrator) from writing to the project tree; workers run as CANOPY_ROLE=worker and are free to edit their worktree. guard-pr-create blocks BOTH orchestrator and worker from opening PRs directly with gh/gh-axi (use 'canopy pr open'). Workers are also refused orchestrator-only 'canopy' state mutations by the CLI itself (they share the orchestrator's .canopy via git-common-dir).",
   "hooks": {
     "SessionStart": [
       {

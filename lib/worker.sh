@@ -28,7 +28,8 @@ _worker_spawn_claude() {
   local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
-  sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+  # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy.
+  sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
             --append-system-prompt "$(_agent_body worker)" \
             "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
   [ -n "$sid" ] || die "could not read worker session id from claude --bg"
@@ -58,7 +59,7 @@ _worker_spawn_codex() {
       child=""
       trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
       (
-        printf '%s' "$prompt" | codex "${codex_args[@]}" \
+        printf '%s' "$prompt" | CANOPY_ROLE=worker codex "${codex_args[@]}" \
           exec resume --json -o "$lastf" "$resume_sid" -
       ) &
       child="$!"
@@ -71,7 +72,7 @@ _worker_spawn_codex() {
       child=""
       trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
       (
-        printf '%s' "$prompt" | codex "${codex_args[@]}" \
+        printf '%s' "$prompt" | CANOPY_ROLE=worker codex "${codex_args[@]}" \
           exec --json -o "$lastf" -
       ) &
       child="$!"
@@ -155,7 +156,8 @@ ${issues}"
       need claude
       # Pre-trust the leased worktree so claude never stalls on the trust dialog.
       _claude_trust_path "$path"
-      sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+      # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy.
+      sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
                 --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
       [ -n "$sid" ] || die "could not read fix-worker session id"
       _task_set_worker_runtime "$id" claude "$sid" "" ""
