@@ -182,6 +182,8 @@ eval "$ENV \"$CANOPY\" worker resume --workspace ws-existing $ID2 >/dev/null 2>&
   && ok 'live Herdr pane resume succeeds' || bad 'live Herdr pane resume failed'
 grep -q 'agent send pane-codex Continue from checkpoint: live pane checkpoint' "$WORK/herdr.log" \
   && ok 'live Herdr resume sends checkpoint continuation' || bad 'live Herdr resume lost checkpoint continuation'
+grep -q 'pane send-keys pane-codex Enter' "$WORK/herdr.log" \
+  && ok 'live Herdr resume submits checkpoint (Enter), not just paste' || bad 'live Herdr resume pasted checkpoint without submitting'
 if eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1"; then bad 'close must require ready_for_review'; else ok 'close blocks before ready_for_review'; fi
 eval "$ENV \"$CANOPY\" task checkpoint $ID2 ready_for_review >/dev/null 2>&1"
 eval "$ENV \"$CANOPY\" worker close $ID2 >/dev/null 2>&1" && ok 'close validates and closes' || bad 'close failed after ready_for_review'
@@ -275,6 +277,15 @@ eval "$ENV \"$CANOPY\" worker attach $ID13 >/dev/null 2>&1" \
   && ok 'attach validates and calls owned Herdr pane' || bad 'attach rejected owned Herdr pane'
 eval "$ENV \"$CANOPY\" worker send $ID13 'hello worker' >/dev/null 2>&1" \
   && ok 'send validates and calls owned Herdr pane' || bad 'send rejected owned Herdr pane'
+# The paste (agent send) must be followed by a submit (Enter) or the message sits
+# unsent in the worker's input box — silently no-op'ing orchestrator steering.
+grep -q 'pane send-keys pane-attach Enter' "$WORK/herdr.log" \
+  && ok 'send submits the message (Enter), not just paste' || bad 'send pasted without submitting (Enter)'
+# Multi-line steering is the exact case the paste-without-submit bug stranded.
+eval "$ENV \"$CANOPY\" worker send $ID13 $'fix line one\nand line two' >/dev/null 2>&1" \
+  && ok 'multi-line send accepted' || bad 'multi-line send rejected'
+[ "$(grep -c 'pane send-keys pane-attach Enter' "$WORK/herdr.log")" -ge 2 ] \
+  && ok 'multi-line send also submits with Enter' || bad 'multi-line send did not submit'
 ATTACH_CALLS="$(grep -c 'agent attach pane-attach' "$WORK/herdr.log")"; SEND_CALLS="$(grep -c 'agent send pane-attach hello worker' "$WORK/herdr.log")"
 eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker attach $ID13 >/dev/null 2>&1" && bad 'attach used mismatched Herdr pane' || ok 'attach rejects mismatched Herdr pane'
 eval "$ENV HERDR_MISMATCH=1 \"$CANOPY\" worker send $ID13 'blocked' >/dev/null 2>&1" && bad 'send used mismatched Herdr pane' || ok 'send rejects mismatched Herdr pane'
