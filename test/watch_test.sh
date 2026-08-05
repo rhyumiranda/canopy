@@ -153,6 +153,31 @@ OUT="$(HERDR_LOG="$WORK/herdr.log" PATH="$STUB:$PATH" HOME="$H" "$CANOPY" recove
 printf '%s' "$OUT" | grep -q "CANOPY EVENT task $ID3 \\[blocked\\]" && ok "recover consumes durable terminal event" || bad "recover missing event"
 [ "$(jq -r '[.events[]|select(.consumed_at==null)]|length' "$R3/.canopy/events/lifecycle.json")" = "0" ] && ok "recover drains event once" || bad "recover left unconsumed event"
 
+# --- dedupe: a genuine LATER transition on the same pane/session wakes again, but a
+# repeated probe of the same continuous terminal state does not (bug 3) ---
+R7="$(new_repo)"; cd "$R7"; PATH="$STUB:$PATH" "$CANOPY" init >/dev/null 2>&1
+ID7="$(PATH="$STUB:$PATH" "$CANOPY" task add "re-block dedupe" 2>/dev/null)"
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID7" worktree "$R7" >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID7" agent codex >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID7" herdr_pane_id pane-done >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID7" herdr_tab_id tab-done >/dev/null
+PATH="$STUB:$PATH" "$CANOPY" task set "$ID7" herdr_agent_session_id session-reblock >/dev/null
+LC="$R7/.canopy/events/lifecycle.json"
+evn() { jq -r '[.events[]|select(.status=="blocked")]|length' "$LC" 2>/dev/null || echo 0; }
+PATH="$STUB:$PATH" "$CANOPY" task status "$ID7" implementing >/dev/null
+HERDR_LOG="$WORK/herdr.log" HERDR_STATE=blocked PATH="$STUB:$PATH" "$CANOPY" watch once >/dev/null 2>&1
+[ "$(evn)" = 1 ] && ok "first block emits one event" || bad "first block event count wrong ($(evn))"
+# still blocked and merely reactivated: same continuous state -> no new event
+PATH="$STUB:$PATH" "$CANOPY" task status "$ID7" implementing >/dev/null
+HERDR_LOG="$WORK/herdr.log" HERDR_STATE=blocked PATH="$STUB:$PATH" "$CANOPY" watch once >/dev/null 2>&1
+[ "$(evn)" = 1 ] && ok "continuous block is a true duplicate (suppressed)" || bad "continuous block re-emitted ($(evn))"
+# worker leaves the terminal state (healthy again) -> starts a new lifecycle phase
+HERDR_LOG="$WORK/herdr.log" HERDR_STATE=working PATH="$STUB:$PATH" "$CANOPY" watch once >/dev/null 2>&1
+[ "$(evn)" = 1 ] && ok "leaving terminal emits no event" || bad "leaving terminal emitted an event ($(evn))"
+# genuine RE-transition into blocked on the same pane/session -> wakes again
+HERDR_LOG="$WORK/herdr.log" HERDR_STATE=blocked PATH="$STUB:$PATH" "$CANOPY" watch once >/dev/null 2>&1
+[ "$(evn)" = 2 ] && ok "genuine re-block on same pane/session wakes again" || bad "genuine re-block was wrongly deduplicated ($(evn))"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

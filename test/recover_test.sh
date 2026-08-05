@@ -59,10 +59,9 @@ EOF
 chmod +x "$WORK/bin/herdr"
 cat > "$WORK/bin/codex" <<'EOF'
 #!/usr/bin/env bash
-set -eu
+set -u
+# Interactive Codex receives the prompt as a positional arg (no stdin pipe).
 printf '%s\n' "$*" >> "${CODEX_ARGV_LOG:?}"
-cat >> "${CODEX_STDIN_LOG:?}"
-printf '\n' >> "${CODEX_STDIN_LOG:?}"
 printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread"}'
 EOF
 chmod +x "$WORK/bin/codex"
@@ -80,12 +79,14 @@ BRIEFH="$("$CANOPY" recover "$IDH" 2>/dev/null)"
 echo "$BRIEFH" | grep -q "Resume the stored Herdr codex backend" && ok "Herdr recover names stored backend" || bad "Herdr recover missing backend"
 echo "$BRIEFH" | grep -q "canopy worker resume --workspace ws-existing $IDH" && ok "Herdr recover uses worker resume with stored workspace" || bad "Herdr recover missing worker resume command"
 echo "$BRIEFH" | grep -q "Re-spawn a worker" && bad "Herdr recover should not use generic respawn" || ok "Herdr recover avoids generic respawn"
-ENV="HERDR_LOG=$WORK/herdr.log CODEX_ARGV_LOG=$WORK/codex.argv CODEX_STDIN_LOG=$WORK/codex.stdin PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+ENV="HERDR_LOG=$WORK/herdr.log CODEX_ARGV_LOG=$WORK/codex.argv PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+: > "$WORK/codex.argv"
 eval "$ENV HERDR_PANE_GET_FAIL=pane-stale \"$CANOPY\" worker resume --workspace ws-existing $IDH >/dev/null 2>&1" && ok "Herdr recover command resumes Codex worker" || bad "Herdr recover command failed"
-CODEX_RESUME_LINE="$(tail -1 "$WORK/codex.argv")"
+# The prompt is now a positional arg (multi-line), so match against the whole argv log.
+CODEX_RESUME_LINE="$(cat "$WORK/codex.argv")"
 [ "$(printf '%s\n' "$CODEX_RESUME_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok "Herdr recover Codex resume has one bypass flag" || bad "Herdr recover Codex resume bypass count wrong"
 printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad "Herdr recover Codex resume should not pass approval flag" || ok "Herdr recover Codex resume omits approval flag"
-grep -q "fresh review fix next" "$WORK/codex.stdin" && ok "Herdr recover Codex resume includes checkpoint" || bad "Herdr recover Codex resume missing checkpoint"
+grep -q "fresh review fix next" "$WORK/codex.argv" && ok "Herdr recover Codex resume includes checkpoint" || bad "Herdr recover Codex resume missing checkpoint"
 
 IDLEG="$($CANOPY task add "legacy Herdr recovery" 2>/dev/null)"
 $CANOPY task set "$IDLEG" worktree "$R" >/dev/null

@@ -81,7 +81,7 @@ _lifecycle_init() {
 # Returns 0 only when it appended a new durable transition.
 task_lifecycle_event() {
   require_canopy; need jq
-  local id="${1:?task id}" status="${2:?status}" reason="${3:-status changed}" tf ef now checkpoint pane tab sid ws agent key exists
+  local id="${1:?task id}" status="${2:?status}" reason="${3:-status changed}" tf ef now checkpoint pane tab sid ws agent gen key exists
   _assert_task "$id"; _status_terminal "$status" || return 1
   tf="$(task_file "$id")"; _lifecycle_init; ef="$(lifecycle_file)"; now="$(_c_ts)"
   checkpoint="$(jq -r '.checkpoint.note // empty' "$tf")"
@@ -90,7 +90,13 @@ task_lifecycle_event() {
   ws="$(jq -r '.herdr_workspace_id // empty' "$tf")"
   agent="$(jq -r '.agent // empty' "$tf")"
   sid="$(jq -r '.herdr_agent_session_id // .worker_session // empty' "$tf")"
-  key="${id}|${status}|${pane}|${tab}|${sid}"
+  # The generation is bumped each time the worker starts a new active phase (start,
+  # resume, or an observed exit from a terminal state). Including it in the dedupe
+  # key lets a genuine LATER transition into the same terminal state on the same
+  # pane/session wake the orchestrator again, while a repeated probe of the SAME
+  # continuous terminal state (same generation) stays deduplicated.
+  gen="$(jq -r '.herdr_lifecycle_gen // 0' "$tf")"
+  key="${id}|${status}|${pane}|${tab}|${sid}|${gen}"
   exists="$(jq -r --arg key "$key" 'any(.events[]?; .key == $key)' "$ef")"
   [ "$exists" = true ] && return 1
   jq --arg key "$key" --arg id "$id" --arg status "$status" --arg reason "$reason" \

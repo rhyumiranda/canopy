@@ -151,6 +151,42 @@ _herdr_probe_state() {
   return 1
 }
 
+# _herdr_new_phase <id> — mark a fresh active worker phase: bump the lifecycle
+# generation and forget the last observed terminal state, so the next terminal
+# outcome is treated as a new, wakeable transition even if it repeats an earlier
+# one on the same pane/session. Called on every real (re)start/resume.
+_herdr_new_phase() {
+  local id="$1" tf gen
+  tf="$(task_file "$id")"
+  gen="$(jq -r '.herdr_lifecycle_gen // 0' "$tf" 2>/dev/null || echo 0)"
+  task_set "$id" herdr_lifecycle_gen "$((gen + 1))" >/dev/null
+  task_set "$id" herdr_probe_status "" >/dev/null
+}
+
+# _herdr_probe_gate <id> <probed-status>
+# Transition detector guarding lifecycle emission. Returns 0 (emit) ONLY when the
+# worker has just ENTERED a terminal state it was not already in. When the worker
+# is seen to LEAVE a terminal state (a healthy/non-terminal probe after a terminal
+# one), it bumps the generation so a later re-entry counts as a fresh transition.
+# This is what stops an over-aggressive dedupe from swallowing legitimate later
+# wakes on the same pane/session while still suppressing true duplicate probes.
+_herdr_probe_gate() {
+  local id="$1" status="$2" tf last gen
+  tf="$(task_file "$id")"
+  last="$(jq -r '.herdr_probe_status // empty' "$tf" 2>/dev/null || true)"
+  if _status_terminal "$status"; then
+    [ "$last" = "$status" ] && return 1
+    task_set "$id" herdr_probe_status "$status" >/dev/null
+    return 0
+  fi
+  if _status_terminal "$last"; then
+    gen="$(jq -r '.herdr_lifecycle_gen // 0' "$tf" 2>/dev/null || echo 0)"
+    task_set "$id" herdr_lifecycle_gen "$((gen + 1))" >/dev/null
+    task_set "$id" herdr_probe_status "" >/dev/null
+  fi
+  return 1
+}
+
 _herdr_supervisor_label() {
   local id="$1" pane="$2" sid="$3" root_hash ident_hash
   root_hash="$(printf '%s' "$(repo_root)" | shasum | cut -c1-8)"
@@ -246,11 +282,13 @@ canopy_herdr_supervise() {
     _herdr_supervisor_identity_matches "$id" "$pane" "$tab" "$sid" "$agent" || return 0
     status="$(_herdr_probe_state "$pane" || true)"
     if _status_terminal "$status"; then
-      current="$(jq -r '.status' "$tf")"
-      [ "$current" = "$status" ] || task_set "$id" status "$status" >/dev/null
-      if task_lifecycle_event "$id" "$status" "Herdr worker reported $status" >/dev/null; then
-        _notify "task $id $status"
-        task_log "$id" "Herdr lifecycle event queued: $status"
+      if _herdr_probe_gate "$id" "$status"; then
+        current="$(jq -r '.status' "$tf")"
+        [ "$current" = "$status" ] || task_set "$id" status "$status" >/dev/null
+        if task_lifecycle_event "$id" "$status" "Herdr worker reported $status" >/dev/null; then
+          _notify "task $id $status"
+          task_log "$id" "Herdr lifecycle event queued: $status"
+        fi
       fi
       _herdr_supervisor_stop "$id" "$pane" "$sid"
       return 0
@@ -270,7 +308,10 @@ canopy_herdr_watch_once() {
     pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
     [ -n "$pane" ] || continue
     status="$(_herdr_probe_state "$pane" || true)"
-    _status_terminal "$status" || continue
+    # Route every probe through the gate: it records healthy/non-terminal states so
+    # a later terminal transition on the same pane is not wrongly deduplicated, and
+    # only returns 0 for a genuine fresh terminal transition worth waking on.
+    _herdr_probe_gate "$id" "$status" || continue
     current="$(jq -r '.status' "$tf")"
     [ "$current" = "$status" ] || task_set "$id" status "$status" >/dev/null
     if task_lifecycle_event "$id" "$status" "Herdr worker reported $status" >/dev/null; then
@@ -310,9 +351,14 @@ _herdr_launch_codex() {
   local -a codex_args
   codex_args=(-s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -C "$path")
   _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
+  # Launch the interactive Codex TUI seeded with the prompt as its positional arg
+  # (mirrors the Claude adapter). The old `bash -c '… | codex … exec --json -'`
+  # wrapper ran Codex headless: it printed a one-shot JSON stream, then exited, so
+  # the tab was never a steerable interactive worker — and on any early exit the
+  # seeded prompt died with it. Passing the prompt as codex's argument delivers it
+  # to a durable interactive session instead.
   "$(_herdr_bin)" agent start codex --cwd "$path" --tab "$tab" --no-focus -- \
-    bash -c 'prompt="$1"; shift; printf "%s" "$prompt" | exec codex "$@" exec --json -' \
-    canopy-codex "$prompt" "${codex_args[@]}"
+    codex "${codex_args[@]}" "$prompt"
 }
 
 _herdr_launch() {
@@ -378,6 +424,9 @@ _herdr_start() {
           || die "task $id could not deliver its checkpoint to the live Herdr pane"
         task_log "$id" "delivered checkpoint to reused Herdr pane $pane"
       fi
+      # Resuming a live pane hands it new work — start a fresh lifecycle phase so a
+      # repeat of an earlier terminal outcome still wakes the orchestrator.
+      _herdr_new_phase "$id"
     fi
     task_status "$id" implementing >/dev/null
     _herdr_report "$id" working "reused existing Herdr worker"
@@ -405,6 +454,9 @@ Continue from the checkpoint; do not restart."
   task_set "$id" herdr_tab_id "$tab" >/dev/null
   task_set "$id" herdr_pane_id "$pane" >/dev/null
   [ -n "$sid" ] && task_set "$id" herdr_agent_session_id "$sid" >/dev/null
+  # A freshly launched worker is a new lifecycle phase; reset transition tracking so
+  # its terminal outcome emits even if the task previously ended in the same state.
+  _herdr_new_phase "$id"
   task_status "$id" implementing >/dev/null
   task_log "$id" "started interactive $agent worker in Herdr workspace $ws, tab $tab, pane $pane"
   _herdr_report "$id" working "interactive worker started"
@@ -524,7 +576,7 @@ canopy_worker_read() {
 }
 
 _herdr_worker_stop() {
-  local ref="${1:?task id}" tf pane tab agent sid
+  local ref="${1:?task id}" tf pane tab agent sid cur
   tf="$(task_file "$ref")"
   pane="$(jq -r '.herdr_pane_id // empty' "$tf")"
   tab="$(jq -r '.herdr_tab_id // empty' "$tf")"
@@ -540,6 +592,17 @@ _herdr_worker_stop() {
     _herdr_supervisor_stop "$ref" "$pane" "$sid"
     "$(_herdr_bin)" pane send-keys "$pane" CTRL-C >/dev/null 2>&1 || true
     _herdr_report "$ref" idle "interactive worker stopped"
+  fi
+  # A manual stop is a terminal outcome: record a durable 'interrupted' event (once,
+  # and only if the worker was still active) so the next Canopy turn learns it was
+  # halted instead of silently losing the transition. The supervisor is already
+  # booted out above, so it will not also emit.
+  cur="$(jq -r '.status' "$tf")"
+  if ! _status_terminal "$cur"; then
+    task_set "$ref" status interrupted >/dev/null
+    if task_lifecycle_event "$ref" interrupted "worker manually stopped" >/dev/null; then
+      _notify "task $ref interrupted"
+    fi
   fi
   task_log "$ref" "stopped Herdr worker${pane:+ pane $pane}${tab:+ in tab $tab}"
 }
