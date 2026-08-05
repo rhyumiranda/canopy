@@ -99,6 +99,37 @@ DIFF="$(git -C "$RB" diff "$GOT_BASE..feat")"
 printf '%s' "$DIFF" | grep -q 'featwork' && ok "review diff contains the change under review" || bad "review diff missing the change"
 printf '%s' "$DIFF" | grep -q 'bloat'    && bad "review diff leaked already-merged bloat" || ok "review diff excludes already-merged bloat"
 
+# _review_base fetches origin so a STALE LOCAL base ref does NOT inflate the diff.
+# Repro of the t26 false alarm: a linked worktree's local base ref freezes at pool-
+# creation time and drifts behind remote merges. Before the fix, merge-base used that
+# stale local ref and counted every already-merged commit as new (322 real lines
+# reported as 2777). With the fetch, the base is the CURRENT remote tip.
+ORIGIN="$(mktemp -d)"; WK="$(mktemp -d)"
+trap 'rm -rf "$W" "$RB" "$ORIGIN" "$WK"' EXIT
+git init -q "$ORIGIN"
+git -C "$ORIGIN" config user.email t@t; git -C "$ORIGIN" config user.name t
+echo base0 > "$ORIGIN/f"; git -C "$ORIGIN" add -A; git -C "$ORIGIN" commit -qm init
+git -C "$ORIGIN" branch -M dev
+git clone -q "$ORIGIN" "$WK" 2>/dev/null
+git -C "$WK" config user.email t@t; git -C "$WK" config user.name t
+# Advance the REMOTE base with a commit the worktree's local `dev` never sees.
+echo mergedwork > "$ORIGIN/g"; git -C "$ORIGIN" add -A
+git -C "$ORIGIN" commit -qm "merged: already integrated into the base, NOT in scope"
+# Cut feat from the FRESH remote tip, exactly as `canopy worktree lease` does. Local
+# `dev` stays frozen at base0 — the stale ref the old code would have diffed against.
+git -C "$WK" fetch -q origin dev
+git -C "$WK" checkout -q -B feat FETCH_HEAD
+echo featwork > "$WK/i"; git -C "$WK" add -A
+git -C "$WK" commit -qm "feat: the only change under review"
+STALE_LOCAL="$(git -C "$WK" rev-parse dev)"
+REMOTE_TIP="$(git -C "$ORIGIN" rev-parse dev)"
+[ "$STALE_LOCAL" != "$REMOTE_TIP" ] && ok "stale-base: local base ref is behind the remote" || bad "stale-base: test setup — local base not stale"
+GOT_RB="$(cd "$WK" && _review_base "$WK" 2>/dev/null)"
+eq "stale-base: review base = fresh remote tip, not the stale local ref" "$GOT_RB" "$REMOTE_TIP"
+RBDIFF="$(git -C "$WK" diff "$GOT_RB..feat")"
+printf '%s' "$RBDIFF" | grep -q 'featwork'   && ok "stale-base: diff has the change under review" || bad "stale-base: diff missing the change"
+printf '%s' "$RBDIFF" | grep -q 'mergedwork' && bad "stale-base: diff inflated with already-merged work" || ok "stale-base: diff excludes already-merged work"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
