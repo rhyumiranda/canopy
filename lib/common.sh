@@ -79,6 +79,42 @@ write_atomic() {
 # --- json guard: jq_ok <file> -> non-zero if not valid json ---
 jq_ok() { jq -e . "$1" >/dev/null 2>&1; }
 
+# --- Claude Code folder trust -------------------------------------------------
+# Claude persists per-folder trust in ~/.claude.json under
+# .projects["<abs path>"].hasTrustDialogAccepted (true = trusted). A leased
+# worktree lives outside the usual trusted pool (e.g. ~/.treehouse/...), so it
+# has no entry — and `claude` stalls on the interactive "Do you trust this
+# folder?" dialog at launch. --dangerously-skip-permissions only bypasses *tool*
+# permission prompts, NOT the trust gate, so an untrusted worktree silently
+# wedges a headless/detached worker until it times out. Pre-marking the path we
+# created ourselves as trusted removes that stall. Idempotent; preserves the
+# rest of the (large) config exactly via a jq rewrite + atomic replace.
+_claude_config_file() { printf '%s\n' "${CANOPY_CLAUDE_CONFIG:-$HOME/.claude.json}"; }
+
+# _claude_trust_path <abs-worktree-path> -> best-effort; never fails a launch.
+_claude_trust_path() {
+  local path="${1:?path}" cfg tmp
+  command -v jq >/dev/null 2>&1 || return 0
+  cfg="$(_claude_config_file)"
+  # No config yet: Claude creates it on first run and treats a fresh install as
+  # trusted, so there is nothing to pre-mark.
+  [ -f "$cfg" ] || return 0
+  # Corrupt/empty config: never risk clobbering a file we cannot parse.
+  jq -e . "$cfg" >/dev/null 2>&1 || { warn "trust pre-mark skipped: $cfg is not valid JSON"; return 0; }
+  # Already trusted -> leave the file untouched (idempotent, zero churn).
+  [ "$(jq -r --arg p "$path" '.projects[$p].hasTrustDialogAccepted // false' "$cfg" 2>/dev/null)" = true ] && return 0
+  tmp="$(mktemp "${cfg}.XXXXXX")" || return 0
+  if jq --arg p "$path" '
+        .projects //= {} |
+        .projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true})
+      ' "$cfg" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    mv -f "$tmp" "$cfg"
+  else
+    rm -f "$tmp"
+    warn "could not pre-mark $path as trusted in $cfg"
+  fi
+}
+
 # --- base branch: the branch worktrees are cut from, and PRs/reviews target ---
 # A repo whose integration branch is NOT the default (e.g. `develop`, while
 # `main` is stale) sets it once with `canopy base develop`. The configured

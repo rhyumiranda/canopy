@@ -347,6 +347,8 @@ _herdr_report() {
 
 _herdr_launch_claude() {
   local id="$1" path="$2" tab="$3" prompt="$4"
+  # Pre-trust the leased worktree so claude never stalls on the trust dialog.
+  _claude_trust_path "$path"
   "$(_herdr_bin)" agent start claude --cwd "$path" --tab "$tab" --no-focus -- \
     claude --dangerously-skip-permissions --append-system-prompt "$(_agent_body worker)" "$prompt"
 }
