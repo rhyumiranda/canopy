@@ -53,6 +53,30 @@ eq "feature branch cut from the configured base (develop)" \
    "$(git -C "$P2" merge-base HEAD develop)" "$DEVTIP"
 "$CANOPY" worktree return "$ID2" >/dev/null 2>&1 || true
 
+# --- container repo detection (t17): a thin outer repo wrapping the real project
+# in a nested git repo must fail fast, not silently lease the empty container ---
+C="$WORK/container"; mkdir -p "$C/backend"; cd "$C"
+git init -q; git config user.email t@t; git config user.name t
+printf '# container\n' > AGENTS.md; git add -A; git commit -qm init; git branch -M main
+printf 'max_trees = 8\nroot = "./"\n' > treehouse.toml; git add -A; git commit -qm th
+# the real project: its own independent git repo in a subdirectory
+( cd backend && git init -q && git config user.email t@t && git config user.name t \
+  && echo code > main.go && git add -A && git commit -qm init ) >/dev/null 2>&1
+
+"$CANOPY" init >/dev/null 2>&1
+CID="$("$CANOPY" task add "build the thing" 2>/dev/null)"
+
+COUT="$("$CANOPY" worktree lease "$CID" 2>&1)"; CRC=$?
+[ "$CRC" -ne 0 ] && ok "lease fails fast on a container repo" || bad "lease did not fail on container"
+case "$COUT" in *backend*) ok "error names the nested sub-repo" ;; *) bad "error omits sub-repo path: $COUT" ;; esac
+case "$COUT" in *"sub-repo"*) ok "error is actionable (points at the sub-repo)" ;; *) bad "error not actionable: $COUT" ;; esac
+eq "no worktree recorded when lease is refused" "$(jq -r '.worktree // empty' "$C/.canopy/tasks/$CID.json")" ""
+
+# escape hatch: CANOPY_ALLOW_CONTAINER=1 leases the outer repo anyway
+BOUT="$(CANOPY_ALLOW_CONTAINER=1 "$CANOPY" worktree lease "$CID" 2>/dev/null)"; BRC=$?
+{ [ "$BRC" -eq 0 ] && [ -d "$BOUT" ]; } && ok "CANOPY_ALLOW_CONTAINER=1 bypasses detection" || bad "bypass failed (rc=$BRC): $BOUT"
+"$CANOPY" worktree return "$CID" >/dev/null 2>&1 || true
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
