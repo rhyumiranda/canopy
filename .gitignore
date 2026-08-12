@@ -6,6 +6,8 @@ node_modules/
 # canopy runtime state (belongs in target projects, never in this repo)
 .canopy/
 treehouse.toml
+# project registry: nested project git repos live here, never tracked by canopy
+projects/
 # local env
 .env
 .env.local

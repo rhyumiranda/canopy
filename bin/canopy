@@ -49,6 +49,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/recover.sh"
 # shellcheck source=../lib/start.sh
 . "$CANOPY_ROOT/lib/start.sh"
+# shellcheck source=../lib/project.sh
+. "$CANOPY_ROOT/lib/project.sh"
 
 usage() {
   cat <<'EOF'
@@ -71,6 +73,8 @@ commands:
   scribe rm <n>        Delete a stale entry
   mode [yolo|guided]   Get or set the global mode
   base [branch]        Get or set the integration branch (worktrees cut from it; PRs target it)
+  project ls           List registered projects (git repos under projects/) with in-flight counts
+  project path <name>  Resolve a project name to its absolute path (exact, else unique substring)
   upgrade              Pull latest + reinstall the CLI (from any directory)
   version              Print version
 
@@ -131,6 +135,13 @@ case "$cmd" in
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;
   base)          state_base "$@" ;;
+  project)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      ls)        canopy_project_ls "$@" ;;
+      path)      canopy_project_path "$@" ;;
+      *)         die "unknown 'project' subcommand: ${sub:-<none>}" ;;
+    esac ;;
   review)        canopy_review "$@" ;;
   pr)
     sub="${1:-}"; shift || true
