@@ -254,12 +254,45 @@ task_log() {
 task_show() { require_canopy; _assert_task "${1:?task id}"; cat "$(task_file "$1")"; }
 
 # --- board / mode -----------------------------------------------------------
+# canopy status [--all]. Bare = this repo's board (unchanged). --all spans every
+# registered project under projects/, printing each board under a project header
+# with task ids shown as <name>:tN — a DISPLAY prefix only; stored ids/seq are
+# never touched.
 state_board() {
+  if [ "${1:-}" = "--all" ]; then shift; state_board_all "$@"; return $?; fi
   require_canopy; need jq
-  local sf; sf="$(state_file)"
+  _state_board_one ""
+}
+
+# _state_board_one [id-prefix] — render the CURRENT repo's board to stderr. With
+# an id-prefix (e.g. "demo:") each task id is shown as <prefix><id> for display
+# only. Empty prefix reproduces the historical single-repo output byte-for-byte.
+_state_board_one() {
+  local prefix="${1:-}" sf; sf="$(state_file)"
   info "mode: $(jq -r '.mode' "$sf")"
   if [ "$(jq '.tasks|length' "$sf")" -eq 0 ]; then log "(no tasks)"; return 0; fi
-  jq -r '.tasks[] | "  \(.id)\t\(.status)\t\(.title)" + (if .pr then "  (PR #\(.pr))" else "" end)' "$sf" >&2
+  jq -r --arg p "$prefix" '.tasks[] | "  \($p)\(.id)\t\(.status)\t\(.title)" + (if .pr then "  (PR #\(.pr))" else "" end)' "$sf" >&2
+}
+
+# canopy status --all — every registered project's board, ids namespaced <name>:tN.
+# Never require_canopy: the orchestrator's own repo may have no board; each project
+# with a board is rendered via a subshell cd so repo_root()/state_file() rescope.
+state_board_all() {
+  need git; need jq
+  local repos=() d
+  while IFS= read -r d; do [ -n "$d" ] && repos+=("$d"); done < <(_project_repos)
+  if [ "${#repos[@]}" -eq 0 ]; then info "status --all: no projects registered"; return 0; fi
+  local name
+  for d in ${repos[@]+"${repos[@]}"}; do
+    name="$(basename "$d")"
+    log ""
+    log "project: $name"
+    if [ -f "$d/.canopy/state.json" ]; then
+      ( cd "$d" && _state_board_one "$name:" )
+    else
+      log "  (no board)"
+    fi
+  done
 }
 
 # state_mode [yolo|guided]

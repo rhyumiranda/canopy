@@ -177,8 +177,11 @@ canopy_watch_status() {
   info "in-flight PRs awaiting merge: ${n:-0}"
 }
 
-# canopy watch ensure  -> arm the watcher if it isn't already (idempotent re-arm)
+# canopy watch ensure [--all]  -> arm the watcher if it isn't already (idempotent
+# re-arm). --all spans every registered project (see canopy_watch_ensure_all).
+# shellcheck disable=SC2120  # also invoked bare by install + canopy_watch_ensure_all
 canopy_watch_ensure() {
+  if [ "${1:-}" = "--all" ]; then shift; canopy_watch_ensure_all "$@"; return $?; fi
   require_canopy
   local label plist; label="$(_watch_label)"; plist="$(_watch_plist)"
   command -v launchctl >/dev/null 2>&1 || { warn "launchctl unavailable (non-macOS) — schedule 'canopy watch once' via cron"; return 0; }
@@ -191,4 +194,31 @@ canopy_watch_ensure() {
     warn "could not arm the watcher — load it manually: launchctl bootstrap gui/\$(id -u) \"$plist\""
   fi
   return 0
+}
+
+# canopy watch ensure --all  -> arm one merge-watcher per registered project that
+# has in-flight (pr-open) tasks. The watcher label is keyed by the repo-path hash
+# (_watch_label), so the per-repo ensure is idempotent — a project already armed
+# is left alone. Projects with no pr-open task are skipped: nothing to watch. We
+# never require_canopy (the orchestrator repo may have no board); each project is
+# rescoped via a subshell cd so _watch_label/state_file resolve to it.
+canopy_watch_ensure_all() {
+  need git; need jq
+  local repos=() d
+  while IFS= read -r d; do [ -n "$d" ] && repos+=("$d"); done < <(_project_repos)
+  if [ "${#repos[@]}" -eq 0 ]; then info "watch ensure --all: no projects registered"; return 0; fi
+  local name sf n armed=0
+  for d in ${repos[@]+"${repos[@]}"}; do
+    name="$(basename "$d")"
+    sf="$d/.canopy/state.json"
+    [ -f "$sf" ] || continue
+    n="$(jq -r '[.tasks[]|select(.status=="pr-open")]|length' "$sf" 2>/dev/null)" || n=0
+    [ -n "$n" ] || n=0
+    if [ "$n" -gt 0 ]; then
+      info "watch ensure: project $name has $n pr-open task(s) — arming watcher"
+      ( cd "$d" && canopy_watch_ensure ) || warn "watch ensure --all: $name had an issue"
+      armed=$((armed+1))
+    fi
+  done
+  [ "$armed" -gt 0 ] || info "watch ensure --all: no projects with pr-open tasks"
 }
