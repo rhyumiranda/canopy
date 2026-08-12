@@ -295,9 +295,25 @@ state_board_all() {
   done
 }
 
-# state_mode [yolo|guided]
+# state_mode [--global] [yolo|guided]
+# Bare (single-repo behavior, unchanged): get/set THIS repo's own .mode.
+# --global: PRINT the orchestrator HOME repo's mode regardless of cwd — the home
+#   is the git repo whose projects/ contains the current repo (else the current
+#   repo itself, resolved by _home_root). This is the one autonomy switch the
+#   orchestrator applies to every routed project; each project's own stored .mode
+#   is SUPERSEDED, never mutated. Read-only: flip the session mode with a bare
+#   `canopy mode yolo|guided` in the home repo. Falls back to "guided" (the
+#   default) when the home has no board yet.
 state_mode() {
-  require_canopy; need jq
+  need jq
+  if [ "${1:-}" = "--global" ]; then
+    shift
+    [ $# -eq 0 ] || die "canopy mode --global is read-only — set the session mode with 'canopy mode yolo|guided' in the orchestrator home repo"
+    local home hsf; home="$(_home_root)"; hsf="$home/.canopy/state.json"
+    if [ -f "$hsf" ]; then jq -r '.mode // "guided"' "$hsf"; else printf '%s\n' guided; fi
+    return 0
+  fi
+  require_canopy
   local sf; sf="$(state_file)"
   if [ $# -eq 0 ]; then jq -r '.mode' "$sf"; return 0; fi
   case "$1" in yolo|guided) ;; *) die "mode must be yolo or guided" ;; esac

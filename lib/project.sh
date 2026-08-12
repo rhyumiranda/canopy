@@ -12,6 +12,23 @@
 # Absolute path to the projects/ registry dir (may not exist yet).
 _projects_root() { echo "$(repo_root)/projects"; }
 
+# _home_root — absolute path to the orchestrator HOME repo (the one whose
+# projects/ registry holds routed projects). If the current repo sits directly
+# under a <home>/projects/ dir, that <home> is the home; otherwise the current
+# repo is its own home (single-repo use, or the canopy home itself). Lets the
+# session-wide global mode be resolved regardless of which project the
+# orchestrator has cd'd into.
+_home_root() {
+  local root parent home
+  root="$(repo_root)"
+  parent="$(dirname "$root")"
+  if [ "$(basename "$parent")" = "projects" ]; then
+    home="$(dirname "$parent")"
+    [ -e "$home/.git" ] && { printf '%s\n' "$home"; return 0; }
+  fi
+  printf '%s\n' "$root"
+}
+
 # _project_repos — print, one absolute path per line, each immediate subdir of
 # projects/ that is its own git repo (has a .git dir or file). Prints nothing
 # when projects/ is absent or holds no repos (callers handle the empty case).
