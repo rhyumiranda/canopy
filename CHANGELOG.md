@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/rhyumiranda/canopy/compare/v0.8.3...v0.8.4) (2026-08-12)
+
+
+### Bug Fixes
+
+* **scribe:** target the current worktree's AGENTS.md, not the main tree ([#58](https://github.com/rhyumiranda/canopy/issues/58)) ([4a08079](https://github.com/rhyumiranda/canopy/commit/4a08079db4d5d3d1818410bc212b404d7295728f))
+
 ## [0.8.3](https://github.com/rhyumiranda/canopy/compare/v0.8.2...v0.8.3) (2026-08-12)
 
 
