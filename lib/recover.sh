@@ -16,7 +16,10 @@ canopy_recover_list() {
 }
 
 # canopy recover [<id>]  -> print a resume-brief for in-flight task(s)
+# canopy recover --all   -> run the same per-repo recover in every registered project.
+# shellcheck disable=SC2120  # also invoked bare (no args) by canopy_recover_all
 canopy_recover() {
+  if [ "${1:-}" = "--all" ]; then shift; canopy_recover_all "$@"; return $?; fi
   require_canopy; need jq; need git
   local ids ev saw_event=0
   if [ "${1:-}" = "list" ]; then canopy_recover_list; return 0; fi
@@ -84,4 +87,26 @@ EOF
 EOF
     fi
   done <<< "$ids"
+}
+
+# canopy recover --all  -> iterate every registered project under projects/ and
+# run the existing per-repo recover in each (re-arm watcher, reconcile merged
+# PRs, report in-flight). The orchestrator's own repo may have no .canopy/, so we
+# never require_canopy here — we cd into each project and let its own board drive
+# recover. A project that is a bare git repo with no board is skipped, not fatal.
+canopy_recover_all() {
+  need git; need jq
+  local repos=() d
+  while IFS= read -r d; do [ -n "$d" ] && repos+=("$d"); done < <(_project_repos)
+  if [ "${#repos[@]}" -eq 0 ]; then info "recover --all: no projects registered"; return 0; fi
+  local name
+  for d in ${repos[@]+"${repos[@]}"}; do
+    name="$(basename "$d")"
+    printf '\n=== project: %s ===\n' "$name"
+    if [ -f "$d/.canopy/state.json" ]; then
+      ( cd "$d" && canopy_recover ) || warn "recover --all: $name had an issue"
+    else
+      info "recover --all: $name has no board — skipping"
+    fi
+  done
 }
