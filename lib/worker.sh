@@ -25,8 +25,17 @@ _worker_agent_flag() {
 }
 
 _worker_spawn_claude() {
-  local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid
-  sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+  local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid settings
+  local -a settings_arg=()
+  # Pre-trust the leased worktree so claude never stalls on the trust dialog.
+  _claude_trust_path "$path"
+  # Seed the Stop hook so this worker reports idle + a lifecycle event on completion.
+  settings="$(_worker_claude_settings "$id" || true)"
+  [ -z "$settings" ] || settings_arg=(--settings "$settings")
+  # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
+  # (resolved via git-common-dir); without it the worker inherits orchestrator.
+  sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
+            ${settings_arg[@]+"${settings_arg[@]}"} \
             --append-system-prompt "$(_agent_body worker)" \
             "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
   [ -n "$sid" ] || die "could not read worker session id from claude --bg"
@@ -37,6 +46,7 @@ _worker_spawn_claude() {
 _worker_spawn_codex() {
   local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" mode="${5:-spawn}" resume_sid="${6:-}"
   local prompt pid sid logdir logf lastf
+  local -a codex_args
   logdir="$(canopy_logs_dir)"
   mkdir -p "$logdir"
   logf="$logdir/${id}.${mode}.$(date +%s).codex.jsonl"
@@ -45,6 +55,8 @@ _worker_spawn_codex() {
   if [ "$mode" = fix ]; then
     prompt="$brief"
   fi
+  codex_args=(-s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -C "$path")
+  _codex_has_bypass_arg "${codex_args[@]+"${codex_args[@]}"}" || codex_args+=("$(_codex_bypass_flag)")
 
   if [ -n "$resume_sid" ]; then
     (
@@ -53,7 +65,7 @@ _worker_spawn_codex() {
       child=""
       trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
       (
-        printf '%s' "$prompt" | codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" -C "$path" \
+        printf '%s' "$prompt" | CANOPY_ROLE=worker codex "${codex_args[@]}" \
           exec resume --json -o "$lastf" "$resume_sid" -
       ) &
       child="$!"
@@ -66,7 +78,7 @@ _worker_spawn_codex() {
       child=""
       trap '[ -n "$child" ] && kill "$child" >/dev/null 2>&1 || true; wait "$child" >/dev/null 2>&1 || true; exit 0' TERM INT
       (
-        printf '%s' "$prompt" | codex -s "${CANOPY_CODEX_SANDBOX:-workspace-write}" -a "${CANOPY_CODEX_APPROVAL:-never}" -C "$path" \
+        printf '%s' "$prompt" | CANOPY_ROLE=worker codex "${codex_args[@]}" \
           exec --json -o "$lastf" -
       ) &
       child="$!"
@@ -148,7 +160,15 @@ ${issues}"
   case "$agent" in
     claude)
       need claude
-      sid="$( cd "$path" && claude --bg --dangerously-skip-permissions \
+      # Pre-trust the leased worktree so claude never stalls on the trust dialog.
+      _claude_trust_path "$path"
+      local settings; local -a settings_arg=()
+      settings="$(_worker_claude_settings "$id" || true)"
+      [ -z "$settings" ] || settings_arg=(--settings "$settings")
+      # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
+      # (resolved via git-common-dir); without it the worker inherits orchestrator.
+      sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
+                ${settings_arg[@]+"${settings_arg[@]}"} \
                 --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
       [ -n "$sid" ] || die "could not read fix-worker session id"
       _task_set_worker_runtime "$id" claude "$sid" "" ""
@@ -194,8 +214,65 @@ canopy_worker_logs() {
 
 # canopy worker stop <id|sid>
 canopy_worker_stop() {
+  local ref=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) _worker_help stop; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker stop'" "valid flags: --help. usage: canopy worker stop <task-id|session-id>" ;;
+      *) ref="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker stop <task-id|session-id>"; break ;;
+    esac
+    shift
+  done
+  if [ -z "$ref" ] && [ "$#" -gt 0 ]; then ref="$1"; fi
+  [ -n "$ref" ] || usage_error "missing task-id or session-id" "usage: canopy worker stop <task-id|session-id>"
   require_canopy; need jq
-  local ref="${1:?worker id or session}" sid="" id="" agent="" pid=""
+  local sid id="" agent="" pid="" tf pane tab
+  tf="$(task_file "$ref" 2>/dev/null || true)"
+  # Automated-cleanup path: `CANOPY_WORKER_CLEANUP=1 canopy worker stop <id>` must
+  # never close a live/unshipped worker. Route through the same _herdr_safe_to_close
+  # chokepoint the merge-watcher and `worker clean` use: close only when
+  # done+merged AND the live pane is not working; otherwise leave it running.
+  if [ -f "$tf" ] && [ "${CANOPY_WORKER_CLEANUP:-0}" = 1 ]; then
+    pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+    tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+    if [ -n "$pane" ] || [ -n "$tab" ]; then
+      # Herdr-backed worker: close only through the safe-to-close chokepoint, so a
+      # still-working pane is never torn down.
+      if declare -F _herdr_clean_one >/dev/null 2>&1 && _herdr_clean_one "$ref"; then
+        toon_obj task "$ref" cleaned ok
+      else
+        toon_obj task "$ref" cleaned skipped
+      fi
+    else
+      # Headless worker (no Herdr pane): stop the detached process so a merged task
+      # never leaves one running against a returned worktree (main-only fix). Best
+      # effort — a completed worker may already have exited.
+      _canopy_worker_stop_headless "$ref" >/dev/null 2>&1 || true
+      toon_obj task "$ref" cleaned ok
+    fi
+    return 0
+  fi
+  if [ -f "$tf" ]; then
+    pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
+    tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
+    if [ -n "$pane" ] || [ -n "$tab" ]; then
+      if declare -F _herdr_worker_stop >/dev/null 2>&1; then
+        _herdr_worker_stop "$ref"
+        toon_obj task "$ref" pane "${pane:--}" stopped ok
+        return 0
+      fi
+      die "task $ref has Herdr state but interactive support is unavailable"
+    fi
+  fi
+  _canopy_worker_stop_headless "$ref"
+  toon_obj worker "$ref" stopped ok
+}
+
+_canopy_worker_stop_headless() {
+  local ref sid id="" agent="" pid=""
+  ref="${1:?worker id or session}"
+  sid="$ref"
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then
     id="$ref"
   else
@@ -213,11 +290,17 @@ canopy_worker_stop() {
       claude stop "$sid" >/dev/null 2>&1 || true
       ;;
     codex)
-      if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
-        kill "$pid" >/dev/null 2>&1 || true
-        sleep 1
-        kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" >/dev/null 2>&1 || true
-      fi
+      _canopy_stop_pid "$pid"
       ;;
   esac
+}
+
+_canopy_stop_pid() {
+  local pid="${1:-}"
+  [ -n "$pid" ] || return 0
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" >/dev/null 2>&1 || true
+  fi
 }

@@ -20,7 +20,8 @@ echo "$OUT" | grep -q 'CANOPY_ROLE=orchestrator' && ok "start sets CANOPY_ROLE=o
 OUT2="$(cd "$R" && "$CANOPY" start --codex --dry-run 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "start --codex --dry-run succeeds" || bad "start codex dry-run failed"
 echo "$OUT2" | grep -q 'codex' && ok "start --codex targets codex" || bad "codex dry-run missing codex"
-echo "$OUT2" | grep -q -- '-a never' && ok "start --codex bypasses permission prompts" || bad "codex start does not bypass permission prompts"
+echo "$OUT2" | grep -q -- '--dangerously-bypass-approvals-and-sandbox' && ok "start --codex includes Codex bypass flag" || bad "codex dry-run missing bypass flag"
+echo "$OUT2" | grep -q -- '-a never' && bad "start --codex should not combine -a never with bypass" || ok "start --codex omits conflicting approval flag"
 
 # real launch keeps the same default (with a fake Codex binary)
 FAKE_BIN="$WORK/fake-bin"; mkdir -p "$FAKE_BIN"
@@ -28,9 +29,12 @@ printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" > "$CANOPY_CAPTURE"' > 
 chmod +x "$FAKE_BIN/codex"
 CAPTURE="$WORK/codex-args"
 ( cd "$R" && PATH="$FAKE_BIN:$PATH" CANOPY_CAPTURE="$CAPTURE" "$CANOPY" start --codex >/dev/null 2>&1 )
-grep -qx -- '-a' "$CAPTURE" && grep -qx -- 'never' <(sed -n '/^-a$/{n;p;}' "$CAPTURE") \
-  && ok "real codex launch bypasses permission prompts" \
-  || bad "real codex launch does not bypass permission prompts"
+[ "$(grep -cx -- '--dangerously-bypass-approvals-and-sandbox' "$CAPTURE")" = 1 ] \
+  && ok "real codex launch has one bypass flag" \
+  || bad "real codex launch bypass flag count wrong"
+grep -qx -- '-a' "$CAPTURE" \
+  && bad "real codex launch should not pass approval flag" \
+  || ok "real codex launch omits conflicting approval flag"
 
 # refuses outside a canopy repo
 D="$WORK/plain"; mkdir -p "$D"; ( cd "$D"; git init -q )

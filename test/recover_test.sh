@@ -33,6 +33,71 @@ echo "$BRIEF" | grep -q "Add GET /health" && ok "recover includes original inten
 echo "$BRIEF" | grep -q "route added, tests next" && ok "recover includes last checkpoint" || bad "recover missing checkpoint"
 echo "$BRIEF" | grep -qi "continue from the checkpoint" && ok "recover says CONTINUE not restart" || bad "recover missing continue instruction"
 
+# Herdr-backed Codex tasks recover through worker resume with the stored workspace/backend.
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/herdr" <<'EOF'
+#!/usr/bin/env bash
+set -u
+for arg in "$@"; do
+  printf '%s ' "$(printf '%s' "$arg" | tr '\n' ' ')" >> "${HERDR_LOG:?}"
+done
+printf '\n' >> "${HERDR_LOG:?}"
+case "$1 ${2:-}" in
+  workspace\ get) [ "${3:-}" = ws-existing ] ;;
+  tab\ get) printf '%s\n' '{"result":{"tab":{"label":"t2 · Codex"}}}' ;;
+  pane\ get) [ "${HERDR_PANE_GET_FAIL:-}" = "${3:-}" ] && exit 1 || printf '%s\n' '{"result":{"pane":{"agent":"canopy-t2-codex"}}}' ;;
+  pane\ list) printf '%s\n' '[]' ;;
+  agent\ start)
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+    [ "${1:-}" = "--" ] && shift
+    "$@" >/dev/null 2>&1 || exit $?
+    printf '%s\n' '{"jsonrpc":"2.0","id":"rpc-codex","result":{"pane":{"pane_id":"pane-codex"},"agent_session_id":"herdr-codex"}}' ;;
+  agent\ explain) printf '%s\n' '{"state":"working"}' ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$WORK/bin/herdr"
+cat > "$WORK/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+set -u
+# Interactive Codex receives the prompt as a positional arg (no stdin pipe).
+printf '%s\n' "$*" >> "${CODEX_ARGV_LOG:?}"
+printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread"}'
+EOF
+chmod +x "$WORK/bin/codex"
+
+IDH="$("$CANOPY" task add "herdr codex task" 2>/dev/null)"
+"$CANOPY" task set "$IDH" brief "resume through Herdr" >/dev/null
+"$CANOPY" task set "$IDH" worktree "$R" >/dev/null
+"$CANOPY" task set "$IDH" agent codex >/dev/null
+"$CANOPY" task set "$IDH" herdr_workspace_id ws-existing >/dev/null
+"$CANOPY" task set "$IDH" herdr_tab_id tab-existing >/dev/null
+"$CANOPY" task set "$IDH" herdr_pane_id pane-stale >/dev/null
+"$CANOPY" task status "$IDH" implementing >/dev/null
+"$CANOPY" task checkpoint "$IDH" "fresh review fix next" >/dev/null
+BRIEFH="$("$CANOPY" recover "$IDH" 2>/dev/null)"
+echo "$BRIEFH" | grep -q "Resume the stored Herdr codex backend" && ok "Herdr recover names stored backend" || bad "Herdr recover missing backend"
+echo "$BRIEFH" | grep -q "canopy worker resume --workspace ws-existing $IDH" && ok "Herdr recover uses worker resume with stored workspace" || bad "Herdr recover missing worker resume command"
+echo "$BRIEFH" | grep -q "Re-spawn a worker" && bad "Herdr recover should not use generic respawn" || ok "Herdr recover avoids generic respawn"
+ENV="HERDR_LOG=$WORK/herdr.log CODEX_ARGV_LOG=$WORK/codex.argv PATH=$WORK/bin:$PATH CANOPY_HERDR_BIN=$WORK/bin/herdr"
+: > "$WORK/codex.argv"
+eval "$ENV HERDR_PANE_GET_FAIL=pane-stale \"$CANOPY\" worker resume --workspace ws-existing $IDH >/dev/null 2>&1" && ok "Herdr recover command resumes Codex worker" || bad "Herdr recover command failed"
+# The prompt is now a positional arg (multi-line), so match against the whole argv log.
+CODEX_RESUME_LINE="$(cat "$WORK/codex.argv")"
+[ "$(printf '%s\n' "$CODEX_RESUME_LINE" | grep -o -- '--dangerously-bypass-approvals-and-sandbox' | wc -l | tr -d ' ')" = 1 ] && ok "Herdr recover Codex resume has one bypass flag" || bad "Herdr recover Codex resume bypass count wrong"
+printf '%s\n' "$CODEX_RESUME_LINE" | grep -q -- ' -a ' && bad "Herdr recover Codex resume should not pass approval flag" || ok "Herdr recover Codex resume omits approval flag"
+grep -q "fresh review fix next" "$WORK/codex.argv" && ok "Herdr recover Codex resume includes checkpoint" || bad "Herdr recover Codex resume missing checkpoint"
+
+IDLEG="$($CANOPY task add "legacy Herdr recovery" 2>/dev/null)"
+$CANOPY task set "$IDLEG" worktree "$R" >/dev/null
+$CANOPY task set "$IDLEG" herdr_workspace_id ws-existing >/dev/null
+$CANOPY task set "$IDLEG" herdr_tab_id legacy-tab >/dev/null
+$CANOPY task set "$IDLEG" herdr_pane_id legacy-pane >/dev/null
+$CANOPY task status "$IDLEG" implementing >/dev/null
+BRIEFLEG="$($CANOPY recover "$IDLEG" 2>/dev/null)"
+echo "$BRIEFLEG" | grep -q "canopy worker reconcile --agent <claude|codex> $IDLEG" \
+  && ok "legacy Herdr recovery gives reconciliation command" || bad "legacy Herdr recovery missing reconciliation command"
+
 # a done task is NOT recoverable
 ID2="$("$CANOPY" task add "old task" 2>/dev/null)"
 "$CANOPY" task status "$ID2" done >/dev/null
@@ -40,6 +105,8 @@ ID2="$("$CANOPY" task add "old task" 2>/dev/null)"
 
 # nothing-in-flight case
 ( cd "$R" && "$CANOPY" task status "$ID" done >/dev/null )
+( cd "$R" && "$CANOPY" task status "$IDH" done >/dev/null )
+( cd "$R" && "$CANOPY" task status "$IDLEG" done >/dev/null )
 OUT="$("$CANOPY" recover 2>&1)"
 echo "$OUT" | grep -qi "nothing in flight" && ok "recover clean when nothing in flight" || bad "recover should report nothing in flight"
 

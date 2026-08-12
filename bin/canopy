@@ -49,6 +49,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/recover.sh"
 # shellcheck source=../lib/start.sh
 . "$CANOPY_ROOT/lib/start.sh"
+# shellcheck source=../lib/project.sh
+. "$CANOPY_ROOT/lib/project.sh"
 
 usage() {
   cat <<'EOF'
@@ -59,17 +61,22 @@ usage: canopy <command> [args]
 commands:
   init                 Initialize .canopy/ in the current repo (idempotent)
   start                Open an agent AS the orchestrator (Claude default; --codex experimental)
-  status               Print the task board
+  status [--all]       Print the task board (--all: every registered project, ids as <name>:tN)
   task add <title>     Add a task (prints its id)
   task set <id> <k> <v>  Set a field on a task
   task status <id> <s>   Set a task's status
   task show <id>       Print a task's full detail
+  events [list|consume|wait]  Read one-shot durable lifecycle events
   scribe list          List durable AGENTS.md entries (numbered)
   scribe add <fact>    Append a durable, project-intrinsic fact
   scribe replace <n> <fact>  Rewrite entry n in place
   scribe rm <n>        Delete a stale entry
-  mode [yolo|guided]   Get or set the global mode
+  mode [yolo|guided]   Get or set this repo's mode (--global: read the orchestrator home's session mode)
   base [branch]        Get or set the integration branch (worktrees cut from it; PRs target it)
+  project ls           List registered projects (git repos under projects/) with in-flight counts
+  project path <name>  Resolve a project name to its absolute path (exact, else unique substring)
+  recover --all        Recover across every registered project (re-arm, reconcile, report)
+  watch ensure --all   Arm a merge-watcher for each project that has pr-open tasks
   upgrade              Pull latest + reinstall the CLI (from any directory)
   version              Print version
 
@@ -78,10 +85,12 @@ EOF
 }
 
 cmd="${1:-}"; shift || true
+# Refuse orchestrator-only commands when running as a worker (shared .canopy).
+canopy_role_guard "$cmd" "${1:-}"
 case "$cmd" in
   init)          canopy_init "$@" ;;
   start)         canopy_start "$@" ;;
-  status)        state_board ;;
+  status)        state_board "$@" ;;
   task)
     sub="${1:-}"; shift || true
     case "$sub" in
@@ -93,6 +102,13 @@ case "$cmd" in
       *)         die "unknown 'task' subcommand: ${sub:-<none>}" ;;
     esac ;;
   recover)       canopy_recover "$@" ;;
+  events)        canopy_events "$@" ;;
+  herdr)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      supervise) canopy_herdr_supervise "$@" ;;
+      *)         die "unknown 'herdr' subcommand: ${sub:-<none>}" ;;
+    esac ;;
   worktree)
     sub="${1:-}"; shift || true
     case "$sub" in
@@ -108,15 +124,26 @@ case "$cmd" in
       attach)     canopy_worker_attach "$@" ;;
       send)       canopy_worker_send "$@" ;;
       status)     canopy_worker_status "$@" ;;
+      read)       canopy_worker_read "$@" ;;
       resume)     canopy_worker_resume "$@" ;;
+      reconcile)  canopy_worker_reconcile "$@" ;;
       close)      canopy_worker_close "$@" ;;
+      clean)      canopy_worker_clean "$@" ;;
       spawn)     canopy_worker_spawn "$@" ;;
       fix)       canopy_worker_fix "$@" ;;
       logs)      canopy_worker_logs "$@" ;;
+      idle)      canopy_worker_idle "$@" ;;
       stop)      canopy_worker_stop "$@" ;;
       *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
     esac ;;
   base)          state_base "$@" ;;
+  project)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      ls)        canopy_project_ls "$@" ;;
+      path)      canopy_project_path "$@" ;;
+      *)         die "unknown 'project' subcommand: ${sub:-<none>}" ;;
+    esac ;;
   review)        canopy_review "$@" ;;
   pr)
     sub="${1:-}"; shift || true
@@ -130,7 +157,7 @@ case "$cmd" in
     case "$sub" in
       once)      canopy_watch_once "$@" ;;
       install)   canopy_watch_install "$@" ;;
-      ensure)    canopy_watch_ensure ;;
+      ensure)    canopy_watch_ensure "$@" ;;
       status)    canopy_watch_status ;;
       ""|loop)   canopy_watch "$@" ;;
       *)         die "unknown 'watch' subcommand: ${sub:-<none>}" ;;
