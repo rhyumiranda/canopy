@@ -61,6 +61,24 @@ assert_fail "$CANOPY" scribe rm 0
 assert_fail "$CANOPY" scribe replace abc "nope"
 assert_eq "still two entries after bad ops" "$(entries "$R")" "2"
 
+# --- worktree targeting: scribe writes the CURRENT tree's AGENTS.md, not the
+#     MAIN tree's (repo_root/git-common-dir). A worker's entry must ride its
+#     branch/PR, so it lands in the leased worktree, while the orchestrator's
+#     scribe from the main tree lands in the main tree. ---
+R3="$(new_repo)"; cd "$R3" || exit 1
+WT="$WORK/wt-$RANDOM"
+( cd "$R3" && git worktree add -q -b scribefeat "$WT" >/dev/null 2>&1 )
+( cd "$WT" && "$CANOPY" scribe add "fact from the worktree" >/dev/null 2>&1 )
+( cd "$R3" && "$CANOPY" scribe add "fact from the main tree" >/dev/null 2>&1 )
+assert_eq "worktree scribe lands in worktree AGENTS.md" \
+  "$(grep -c '^- fact from the worktree$' "$WT/AGENTS.md" 2>/dev/null)" "1"
+assert_eq "worktree entry does NOT leak into main tree" \
+  "$(grep -c '^- fact from the worktree$' "$R3/AGENTS.md" 2>/dev/null)" "0"
+assert_eq "main-tree scribe lands in main AGENTS.md" \
+  "$(grep -c '^- fact from the main tree$' "$R3/AGENTS.md" 2>/dev/null)" "1"
+assert_eq "main-tree entry does NOT leak into worktree" \
+  "$(grep -c '^- fact from the main tree$' "$WT/AGENTS.md" 2>/dev/null)" "0"
+
 # --- legacy file with bare bullets and no bar: add self-heals the bar ---
 R2="$(new_repo)"; cd "$R2"
 printf '# AGENTS.md\n\n- pre-existing legacy entry\n' > "$R2/AGENTS.md"

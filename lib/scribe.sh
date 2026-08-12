@@ -24,7 +24,17 @@
 # Over this many entries, 'add' warns you to prune/merge (soft, non-blocking).
 CANOPY_SCRIBE_SOFT_MAX="${CANOPY_SCRIBE_SOFT_MAX:-40}"
 
-_scribe_file() { echo "$(repo_root)/AGENTS.md"; }
+# AGENTS.md is versioned documentation, so it belongs on the CURRENT working
+# branch — resolve it from the tree we are in (show-toplevel), NOT repo_root.
+# repo_root() intentionally follows git-common-dir to the MAIN tree so gitignored
+# .canopy/ state stays a single shared board; using it here would write a worker's
+# entry into the main checkout, off its branch, never riding the PR. State stays
+# on git-common-dir; only AGENTS.md moves to the worktree.
+_scribe_file() {
+  local top
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
+  echo "$top/AGENTS.md"
+}
 
 # The durability bar — plain sentences, one per line (never "- ", see above).
 _scribe_bar() {
