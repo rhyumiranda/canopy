@@ -71,7 +71,7 @@ commands:
   scribe add <fact>    Append a durable, project-intrinsic fact
   scribe replace <n> <fact>  Rewrite entry n in place
   scribe rm <n>        Delete a stale entry
-  mode [yolo|guided]   Get or set the global mode
+  mode [yolo|guided]   Get or set this repo's mode (--global: read the orchestrator home's session mode)
   base [branch]        Get or set the integration branch (worktrees cut from it; PRs target it)
   project ls           List registered projects (git repos under projects/) with in-flight counts
   project path <name>  Resolve a project name to its absolute path (exact, else unique substring)

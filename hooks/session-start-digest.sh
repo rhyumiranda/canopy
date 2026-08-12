@@ -17,12 +17,30 @@ if [ "${CANOPY_ROLE:-}" = "orchestrator" ]; then
   board="$(jq -r '.tasks[]? | "- \(.id) [\(.status)] \(.title)" + (if .pr then " (PR #\(.pr))" else "" end)' "$sf" 2>/dev/null || true)"
   [ -n "$board" ] || board="(no tasks yet)"
 
-  digest="CANOPY STATE — source of truth is .canopy/state.json (read it for full detail).
-mode: ${mode}
-tasks:
-${board}
+  # Registered projects: any git repo directly under this home repo's projects/.
+  # This home repo's own .mode is the session-wide (global) mode applied to them all.
+  projects=""
+  for d in "$root"/projects/*/; do
+    d="${d%/}"
+    [ -e "$d/.git" ] || continue
+    projects="${projects}- $(basename "$d")
+"
+  done
+  if [ -n "$projects" ]; then
+    projects="registered projects (route by name; global mode ${mode} applies to all):
+${projects}"
+  else
+    projects=""
+  fi
 
-You are the orchestrator: read .canopy/ first, delegate all project-code changes to workers, never edit the project tree yourself."
+  digest="CANOPY STATE — source of truth is .canopy/state.json (read it for full detail).
+global mode: ${mode} (this home repo's .mode; applies to every routed project)
+home board:
+${board}
+${projects}
+You are the orchestrator: read .canopy/ first, delegate all project-code changes to workers, never edit the project tree yourself.
+Startup: run \`canopy recover --all\` and show \`canopy project ls\` so the human sees every project + in-flight work.
+Route a named request with \`canopy project path <name>\`, cd there, then run the normal loop in that project's board. Canopy itself is the home, never a routed project under projects/."
 else
   # Not the orchestrator: don't hand over the board or claim the role. Just hint.
   digest="This is a Canopy repo — run \`canopy start\` to orchestrate."
