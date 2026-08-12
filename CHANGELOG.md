@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/rhyumiranda/canopy/compare/v0.8.2...v0.8.3) (2026-08-12)
+
+
+### Bug Fixes
+
+* backport 5 general (non-Herdr) fixes from experimental branch to main ([#51](https://github.com/rhyumiranda/canopy/issues/51)) ([c624e7b](https://github.com/rhyumiranda/canopy/commit/c624e7b390bbd472cb924eba733879c03451a538))
+
 ## [0.8.2](https://github.com/rhyumiranda/canopy/compare/v0.8.1...v0.8.2) (2026-08-03)
 
 
