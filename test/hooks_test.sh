@@ -37,14 +37,48 @@ EMPTY="$(CLAUDE_PROJECT_DIR="$WORK/none" CANOPY_ROLE=orchestrator bash "$ROOT/ho
 [ -z "$EMPTY" ] && ok "digest no-op outside canopy" || bad "digest should be empty outside canopy"
 
 # --- write-guard ---
-guard() { printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(jq -Rn --arg c "$1" '$c')" | CANOPY_ROLE=orchestrator bash "$ROOT/hooks/guard-project-write.sh"; }
+# Build a real MAIN project tree and a real LINKED worktree so the guard's
+# worker-worktree exemption is exercised the way it fires in production (workers
+# inherit CANOPY_ROLE=orchestrator; only their leased LINKED worktree exempts).
+# NOTE: this suite itself runs inside a linked worktree, so the cwd MUST be set
+# explicitly per assertion — running the guard from the suite's own cwd would be
+# auto-exempted and silently pass every "should block" case.
+GR="$WORK/guardrepo"; mkdir -p "$GR"; ( cd "$GR"; git init -q; git config user.email t@t; git config user.name t; echo x>f; git add -A; git commit -qm i )
+GWT="$WORK/guardrepo-wt"; ( cd "$GR" && git worktree add -q -b guardfeat "$GWT" >/dev/null 2>&1 )
+GTH="$WORK/.treehouse/pool/1/repo"; mkdir -p "$GTH"       # treehouse-style path (fallback signal)
+GOUT="$WORK/out-of-tree.txt"                              # a path outside the project tree
+# guard <cmd> [cwd]  -> runs the hook under inherited orchestrator role from <cwd> (default: main tree)
+guard() { local c="$1" d="${2:-$GR}"; ( cd "$d" && printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(jq -Rn --arg cc "$c" '$cc')" | CANOPY_ROLE=orchestrator bash "$ROOT/hooks/guard-project-write.sh" ); }
+# --- still blocks: genuine orchestrator writes that land in the project tree ---
 guard 'echo hi > app.py' && bad "should block write to app.py" || ok "blocks 'echo > app.py'"
 guard "sed -i 's/a/b/' src/x.js" && bad "should block sed -i" || ok "blocks sed -i on project file"
+guard 'echo hi >> app.py' && bad "should block append to app.py" || ok "blocks 'echo >> app.py'"
+guard 'echo hi > src/app.py' && bad "should block nested project write" || ok "blocks write to src/app.py"
+# --- still allows: read-only / CLI / state / scratch ---
 guard 'canopy task set t1 status done' && ok "allows canopy CLI" || bad "should allow canopy CLI"
 guard 'echo x > .canopy/note.txt' && ok "allows .canopy/ writes" || bad "should allow .canopy writes"
 guard 'git status && git diff' && ok "allows read-only git" || bad "should allow read-only git"
+# BUG3 fix: redirects whose TARGET is not in the project tree must be allowed
+guard 'canopy task checkpoint t1 done >/dev/null' && ok "allows redirect to /dev/null" || bad "should allow >/dev/null"
+guard 'echo x 2>/dev/null' && ok "allows stderr redirect to /dev/null" || bad "should allow 2>/dev/null"
+guard 'echo x > /tmp/scratch.txt' && ok "allows redirect to /tmp" || bad "should allow >/tmp"
+guard "echo x > $GOUT" && ok "allows redirect to out-of-tree path" || bad "should allow out-of-tree redirect"
+# BUG1 fix: angle brackets / '>' inside QUOTED args are not redirects (de-quoted first)
+guard "git commit -m 'add <name> field'" && ok "allows quoted <name> (single quotes)" || bad "quoted <name> must not trip guard"
+guard 'git commit -m "wrap <b> tag"' && ok "allows quoted <b> (double quotes)" || bad "quoted <b> must not trip guard"
+guard "canopy task add 'implement a>b compare'" && ok "allows quoted '>' in a CLI arg" || bad "quoted > must not trip guard"
+# BUG2 fix: a worker in its OWN leased worktree may write it, even under the
+# inherited orchestrator role — exempt via linked-worktree AND treehouse-path signals.
+guard 'echo hi > app.py' "$GWT" && ok "allows write from a linked worktree (worker)" || bad "worker worktree write must be allowed"
+guard "sed -i 's/a/b/' src/x.js" "$GWT" && ok "allows sed -i from a linked worktree" || bad "worker sed -i must be allowed"
+guard 'echo hi > app.py' "$GTH" && ok "allows write from a treehouse-path worktree" || bad "treehouse worktree write must be allowed"
 # inactive unless orchestrator role
 printf '{"tool_name":"Bash","tool_input":{"command":"echo x > app.py"}}' | env -u CANOPY_ROLE bash "$ROOT/hooks/guard-project-write.sh" && ok "guard inactive without orchestrator role" || bad "guard should be inactive without role"
+# BUG4 fix: stdin is drained before any early exit, so a writer under pipefail
+# feeding a large payload never gets SIGPIPE (was a flaky exit 141).
+sigp=0; big="$(printf 'x%.0s' $(seq 1 200000))"
+for _ in $(seq 1 20); do ( set -o pipefail; printf '{"tool_name":"Bash","tool_input":{"command":"echo %s"}}' "$big" | env -u CANOPY_ROLE bash "$ROOT/hooks/guard-project-write.sh" >/dev/null 2>&1 ) || sigp=$((sigp+1)); done
+[ "$sigp" -eq 0 ] && ok "drains stdin first (no SIGPIPE/141 over 20 runs)" || bad "SIGPIPE/141 on $sigp/20 runs — hook exits before draining stdin"
 
 # --- pr-create guard: PRs must go through 'canopy pr open', not gh/gh-axi directly ---
 prguard() { printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(jq -Rn --arg c "$1" '$c')" | CANOPY_ROLE=orchestrator bash "$ROOT/hooks/guard-pr-create.sh"; }
