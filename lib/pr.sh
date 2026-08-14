@@ -190,6 +190,13 @@ canopy_pr_checks() {
   # which read a check NAMED e.g. `lint-error-scan` as a failure, and treated any
   # unrecognized output as green. grep+sed (not awk) per AGENTS.md — CI's mawk
   # mis-parses awk regex.
+  # No-CI fast-path: a PR with no CI configured emits NO `summary:`/`total` line
+  # at all — real gh-axi prints `checks: "0 passed, 0 failed — this PR has no CI
+  # checks configured"`. Without this guard the `^summary:` parse below finds
+  # nothing and blocks the gate at `return 2`. Nothing to gate on -> pass.
+  if printf '%s' "$out" | grep -qiE 'no checks|no ci|not configured|no required'; then
+    warn "no CI checks on PR #$pr — nothing to gate on"; return 0
+  fi
   local summary passed failed total
   summary="$(printf '%s\n' "$out" | grep -m1 '^summary:')" || summary=""
   if [ -z "$summary" ]; then

@@ -60,8 +60,10 @@ checks[3]{name,conclusion}:
   lint,pending
   build,pending')" "2"
 
-rceq "no CI configured -> 0" "$(checks_rc 'summary: "0 passed, 0 failed, 0 total"
-checks[0]{name,conclusion}:')" "0"
+# Real gh-axi for a no-CI PR emits NO summary:/total line — just this string.
+# The old fabricated `summary: "0 passed, 0 failed, 0 total"` fixture is what let
+# the "blocks no-CI PRs" regression slip through.
+rceq "no CI configured -> 0" "$(checks_rc 'checks: "0 passed, 0 failed — this PR has no CI checks configured"')" "0"
 
 # the regression: a PASSING check whose NAME contains "error"/"fail"
 rceq "check named *-error-scan is not read as a failure" "$(checks_rc 'summary: "2 passed, 0 failed, 2 total"
