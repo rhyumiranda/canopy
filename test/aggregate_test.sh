@@ -75,5 +75,45 @@ got="$( ( cd "$R/projects/alpha" && "$CANOPY" status ) 2>&1 | grep -E '^  t[0-9]
   || { bad "bare status task line changed"; printf '       want=[%s] got=[%s]\n' "$exp" "$got"; }
 
 echo
+echo "== status renders ONE board per reader (no double-render) =="
+
+# --- piped status (stdout NOT a tty): exactly one TOON board, no dup ----------
+# Captured via $(...), so stdout is a pipe -> the agent/TOON path. It must emit a
+# single machine-parseable board on stdout with NO colored `[canopy] mode:`
+# duplicate leaking in (the old bug rendered the board on BOTH stdout and stderr).
+pipeout="$( ( cd "$R/projects/alpha" && "$CANOPY" status ) 2>/dev/null )"
+has   "piped status emits the TOON mode line"   "$pipeout" "mode: "
+has   "piped status emits the TOON task row"    "$pipeout" "  t1	planning"
+has   "piped status emits the TOON help hint"   "$pipeout" "help: "
+hasnt "piped status has no colored [canopy] duplicate on stdout" "$pipeout" "[canopy]"
+modecount="$(printf '%s\n' "$pipeout" | grep -c '^mode: ')"
+[ "$modecount" -eq 1 ] \
+  && ok "piped status renders exactly one board (one mode line)" \
+  || { bad "piped status rendered $modecount boards (expected 1)"; printf '%s\n' "$pipeout"; }
+
+# --- interactive status (TTY stdout via pty): one colored board, no TOON dup ---
+# Best-effort — a pty read via `script` is finicky on macOS bash 3.2, so we assert
+# only when `script` gives us usable output. At a real terminal stdout is a tty ->
+# the colored human path: exactly one `[canopy] mode:` board, and NONE of the TOON
+# extras (no `help:` line, no plain `tasks[...]{` header) that would signal a
+# second board printed to the same screen.
+if command -v script >/dev/null 2>&1; then
+  esc="$(printf '\033')"
+  tty_out="$(script -q /dev/null bash -c "cd '$R/projects/alpha' && '$CANOPY' status" 2>&1 \
+             | tr -d '\r' | sed "s/${esc}\[[0-9;]*m//g")"
+  if printf '%s' "$tty_out" | grep -q '\[canopy\] mode:'; then
+    m="$(printf '%s\n' "$tty_out" | grep -c '\[canopy\] mode:')"
+    [ "$m" -eq 1 ] && ok "interactive status prints the mode line exactly once" \
+      || { bad "interactive status printed the mode line $m times (double-render)"; printf '%s\n' "$tty_out"; }
+    hasnt "interactive status shows no TOON help line (no second board)"   "$tty_out" "help: "
+    hasnt "interactive status shows no TOON tasks header (no second board)" "$tty_out" "tasks[1]{"
+  else
+    ok "interactive pty read unavailable — skipped (piped path already asserted)"
+  fi
+else
+  ok "no 'script' pty helper — interactive check skipped (piped path asserted)"
+fi
+
+echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

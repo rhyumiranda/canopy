@@ -27,13 +27,14 @@ echo hi > f; git add -A; git commit -qm init; git branch -M main
 "$CANOPY" project ls >/dev/null 2>&1 && ok "ls with no projects/ exits 0" || bad "ls errored on missing projects/"
 
 # --- ls lists a registered repo with abs path, no board -> no count ----------
+# (grep out the trailing AXI next-step `help:` hint line, keep only project rows)
 mkproj "$R" demo
-out="$("$CANOPY" project ls 2>/dev/null)"
+out="$("$CANOPY" project ls 2>/dev/null | grep -v '^help:')"
 eq "ls shows the demo project name+path" "$out" "$(printf 'demo\t%s/projects/demo' "$R")"
 
 # --- a non-repo subdir is NOT a project (must have its own .git) --------------
 mkdir -p "$R/projects/notrepo"
-out="$("$CANOPY" project ls 2>/dev/null)"
+out="$("$CANOPY" project ls 2>/dev/null | grep -v '^help:')"
 eq "ls ignores a non-git subdir" "$out" "$(printf 'demo\t%s/projects/demo' "$R")"
 
 # --- a project WITH its own .canopy board reports an in-flight count ----------

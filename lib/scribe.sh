@@ -96,6 +96,7 @@ canopy_scribe_list() {
   [ -f "$am" ] || { info "scribe: no AGENTS.md yet"; return 0; }
   [ "$(_scribe_count "$am")" = 0 ] && { info "scribe: no entries yet"; return 0; }
   awk '/^- / { printf "%2d  %s\n", ++i, substr($0, 3) }' "$am"
+  toon_help "canopy scribe replace <n> / rm <n> to curate in place; scribe show for the full file"
 }
 
 # canopy scribe add "<fact>"  -> append a new entry (after inspecting via list)

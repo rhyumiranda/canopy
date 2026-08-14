@@ -99,7 +99,7 @@ case "$cmd" in
       status)    task_status "$@" ;;
       checkpoint) task_checkpoint "$@" ;;
       show)      task_show "$@" ;;
-      *)         die "unknown 'task' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'task' subcommand: ${sub:-<none>}" "valid: add, set, status, checkpoint, show" ;;
     esac ;;
   recover)       canopy_recover "$@" ;;
   events)        canopy_events "$@" ;;
@@ -107,7 +107,7 @@ case "$cmd" in
     sub="${1:-}"; shift || true
     case "$sub" in
       supervise) canopy_herdr_supervise "$@" ;;
-      *)         die "unknown 'herdr' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'herdr' subcommand: ${sub:-<none>}" "valid: supervise" ;;
     esac ;;
   worktree)
     sub="${1:-}"; shift || true
@@ -115,7 +115,7 @@ case "$cmd" in
       lease)     canopy_worktree_lease "$@" ;;
       return)    canopy_worktree_return "$@" ;;
       path)      canopy_worktree_path "$@" ;;
-      *)         die "unknown 'worktree' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'worktree' subcommand: ${sub:-<none>}" "valid: lease, return, path" ;;
     esac ;;
   worker)
     sub="${1:-}"; shift || true
@@ -134,7 +134,7 @@ case "$cmd" in
       logs)      canopy_worker_logs "$@" ;;
       idle)      canopy_worker_idle "$@" ;;
       stop)      canopy_worker_stop "$@" ;;
-      *)         die "unknown 'worker' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'worker' subcommand: ${sub:-<none>}" "valid: start, attach, send, status, read, resume, reconcile, close, clean, spawn, fix, logs, idle, stop" ;;
     esac ;;
   base)          state_base "$@" ;;
   project)
@@ -142,7 +142,7 @@ case "$cmd" in
     case "$sub" in
       ls)        canopy_project_ls "$@" ;;
       path)      canopy_project_path "$@" ;;
-      *)         die "unknown 'project' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'project' subcommand: ${sub:-<none>}" "valid: ls, path" ;;
     esac ;;
   review)        canopy_review "$@" ;;
   pr)
@@ -150,7 +150,7 @@ case "$cmd" in
     case "$sub" in
       open)      canopy_pr_open "$@" ;;
       checks)    canopy_pr_checks "$@" ;;
-      *)         die "unknown 'pr' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'pr' subcommand: ${sub:-<none>}" "valid: open, checks" ;;
     esac ;;
   watch)
     sub="${1:-}"; shift || true
@@ -160,7 +160,7 @@ case "$cmd" in
       ensure)    canopy_watch_ensure "$@" ;;
       status)    canopy_watch_status ;;
       ""|loop)   canopy_watch "$@" ;;
-      *)         die "unknown 'watch' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'watch' subcommand: ${sub:-<none>}" "valid: once, install, ensure, status, loop" ;;
     esac ;;
   checks)
     sub="${1:-}"; shift || true
@@ -168,7 +168,7 @@ case "$cmd" in
       run)       canopy_checks_run "$@" ;;
       status)    canopy_checks_status "$@" ;;
       show)      canopy_checks_show "$@" ;;
-      *)         die "unknown 'checks' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'checks' subcommand: ${sub:-<none>}" "valid: run, status, show" ;;
     esac ;;
   scribe)
     sub="${1:-}"; shift || true
@@ -178,12 +178,12 @@ case "$cmd" in
       replace)   canopy_scribe_replace "$@" ;;
       rm)        canopy_scribe_rm "$@" ;;
       show)      canopy_scribe_show ;;
-      *)         die "unknown 'scribe' subcommand: ${sub:-<none>}" ;;
+      *)         usage_error "unknown 'scribe' subcommand: ${sub:-<none>}" "valid: add, list, replace, rm, show" ;;
     esac ;;
   setup)         canopy_setup "$@" ;;
   upgrade)       canopy_upgrade "$@" ;;
   mode)          state_mode "$@" ;;
   version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;
   ""|-h|--help|help) usage ;;
-  *)             die "unknown command: $cmd (try 'canopy help')" ;;
+  *)             usage_error "unknown command: $cmd" "run 'canopy help' for the command list" ;;
 esac

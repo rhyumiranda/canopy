@@ -167,7 +167,7 @@ canopy_events() {
       done
       return 1 ;;
     -h|--help) printf '%s\n' 'usage: canopy events [list|consume|wait [seconds]]' ;;
-    *) die "unknown 'events' subcommand: $sub" ;;
+    *) usage_error "unknown 'events' subcommand: $sub" "valid: list, consume, wait [seconds]" ;;
   esac
 }
 
@@ -316,23 +316,80 @@ task_log() {
   jq --arg now "$(_c_ts)" --arg msg "$*" '.log += [{t:$now,msg:$msg}]' "$tf" | write_atomic "$tf"
 }
 
-# task_show <id>
-task_show() { require_canopy; _assert_task "${1:?task id}"; cat "$(task_file "$1")"; }
+# task_show [--full] <id>
+# Default: a compact TOON of the fields an agent acts on (AXI §1/§2) — the raw
+# detail file carries every internal bookkeeping field (worker_pid, worker_log,
+# the whole log[], herdr identity…) that an agent must not pay tokens to read.
+# --full is the escape hatch (AXI §3): the untouched JSON blob, for a human or a
+# jq consumer that needs a specific internal field.
+task_show() {
+  require_canopy; need jq
+  local full=0 id=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --full) full=1 ;;
+      -*) usage_error "unknown flag: $1" "usage: canopy task show [--full] <id>" ;;
+      *) id="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$id" ] || die "usage: canopy task show [--full] <id>"
+  _assert_task "$id"
+  local tf; tf="$(task_file "$id")"
+  if [ "$full" = 1 ]; then cat "$tf"; return 0; fi
+  jq -r '
+    "id: \(.id)",
+    "status: \(.status)",
+    "title: \(.title)",
+    (if (.brief // "") != "" then "brief: \(.brief)" else empty end),
+    (if .pr then "pr: \(.pr)" else empty end),
+    (if .branch then "branch: \(.branch)" else empty end),
+    (if .worktree then "worktree: \(.worktree)" else empty end),
+    (if ((.depends_on // []) | length) > 0 then "blocked_by: \((.depends_on)|join(", "))" else empty end),
+    (if .agent then "agent: \(.agent)" else empty end),
+    (if (.checkpoint.note // "") != "" then "checkpoint: \(.checkpoint.note)" else empty end)
+  ' "$tf"
+  toon_help "canopy task show $id --full for the raw task JSON"
+}
 
 # --- board / mode -----------------------------------------------------------
 # canopy status [--all]. Bare = this repo's board (unchanged). --all spans every
 # registered project under projects/, printing each board under a project header
 # with task ids shown as <name>:tN — a DISPLAY prefix only; stored ids/seq are
 # never touched.
+# canopy status — one board per reader, keyed on STDOUT (AXI §1/§4/§9). A human at
+# an interactive terminal has a TTY stdout: show ONLY the colored human view (no
+# raw TOON, no help line) so the screen shows one board. An agent/pipe has a
+# non-TTY stdout: emit the machine-parseable TOON board plus the next-step hint on
+# that same channel. Keying on stdout (not stderr) is the fix for the old
+# double-render — at a terminal both streams are the screen, so emitting to both
+# printed the board twice.
 state_board() {
   if [ "${1:-}" = "--all" ]; then shift; state_board_all "$@"; return $?; fi
   require_canopy; need jq
-  _state_board_one ""
+  if [ -t 1 ]; then
+    _state_board_one ""
+  else
+    _state_board_toon ""
+    toon_help "canopy task show <id> for a task's detail"
+  fi
 }
 
-# _state_board_one [id-prefix] — render the CURRENT repo's board to stderr. With
-# an id-prefix (e.g. "demo:") each task id is shown as <prefix><id> for display
-# only. Empty prefix reproduces the historical single-repo output byte-for-byte.
+# _state_board_toon [id-prefix] — the machine-parseable board on STDOUT: the mode
+# line, a TOON task table (AXI §1/§2), and a pre-computed aggregate line (AXI §4).
+# The task-row format is byte-identical to the pretty renderer below. With an
+# id-prefix (e.g. "demo:") each id is shown as <prefix><id> (display only).
+_state_board_toon() {
+  local prefix="${1:-}" sf; sf="$(state_file)"
+  printf 'mode: %s\n' "$(jq -r '.mode' "$sf")"
+  if [ "$(jq '.tasks|length' "$sf")" -eq 0 ]; then printf '(no tasks)\n'; return 0; fi
+  printf 'tasks[%s]{id,status,title}:\n' "$(jq '.tasks|length' "$sf")"
+  jq -r --arg p "$prefix" '.tasks[] | "  \($p)\(.id)\t\(.status)\t\(.title)" + (if .pr then "  (PR #\(.pr))" else "" end) + (if ((.depends_on // []) | length) > 0 then "  ⟂ after \($p)\((.depends_on)|join(", \($p)"))" else "" end)' "$sf"
+  jq -r '"open: \([.tasks[]|select(.status!="done")]|length)  blocked: \([.tasks[]|select(.status=="blocked")]|length)  pr-open: \([.tasks[]|select(.pr!=null)]|length)"' "$sf"
+}
+
+# _state_board_one [id-prefix] — the colored human view on STDERR (mode in cyan
+# via info). Row format matches _state_board_toon exactly.
 _state_board_one() {
   local prefix="${1:-}" sf; sf="$(state_file)"
   info "mode: $(jq -r '.mode' "$sf")"
@@ -343,22 +400,26 @@ _state_board_one() {
 # canopy status --all — every registered project's board, ids namespaced <name>:tN.
 # Never require_canopy: the orchestrator's own repo may have no board; each project
 # with a board is rendered via a subshell cd so repo_root()/state_file() rescope.
+# Same stdout-keyed rule as bare `status` (AXI §1): an interactive human (TTY
+# stdout) gets the colored per-project view on STDERR; an agent/pipe (non-TTY
+# stdout) gets the machine-parseable TOON board plus the next-step hint on STDOUT.
 state_board_all() {
   need git; need jq
   local repos=() d
   while IFS= read -r d; do [ -n "$d" ] && repos+=("$d"); done < <(_project_repos)
   if [ "${#repos[@]}" -eq 0 ]; then info "status --all: no projects registered"; return 0; fi
-  local name
+  local name human=0; [ -t 1 ] && human=1
   for d in ${repos[@]+"${repos[@]}"}; do
     name="$(basename "$d")"
-    log ""
-    log "project: $name"
-    if [ -f "$d/.canopy/state.json" ]; then
-      ( cd "$d" && _state_board_one "$name:" )
+    if [ "$human" = 1 ]; then
+      log ""; log "project: $name"
+      if [ -f "$d/.canopy/state.json" ]; then ( cd "$d" && _state_board_one "$name:" ); else log "  (no board)"; fi
     else
-      log "  (no board)"
+      printf '\nproject: %s\n' "$name"
+      if [ -f "$d/.canopy/state.json" ]; then ( cd "$d" && _state_board_toon "$name:" ); else printf '(no board)\n'; fi
     fi
   done
+  [ "$human" = 1 ] || toon_help "cd into a project and run canopy status, or canopy task show <id> for detail"
 }
 
 # state_mode [--global] [yolo|guided]
