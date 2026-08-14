@@ -184,10 +184,31 @@ canopy_pr_checks() {
   local pr out; pr="$(jq -r '.pr // empty' "$(task_file "$id")")"
   [ -n "$pr" ] || die "task $id has no PR"
   out="$(gh-axi pr checks "$pr" 2>&1)"
-  if printf '%s' "$out" | grep -qiE 'no checks|no ci|not configured|no required'; then
+  # gh-axi is AXI-ergonomic: it emits a structured summary line
+  #   summary: "1 passed, 0 failed, 1 total"
+  # Parse THOSE counts. The old scan grepped the whole blob for /fail|error/,
+  # which read a check NAMED e.g. `lint-error-scan` as a failure, and treated any
+  # unrecognized output as green. grep+sed (not awk) per AGENTS.md — CI's mawk
+  # mis-parses awk regex.
+  local summary passed failed total
+  summary="$(printf '%s\n' "$out" | grep -m1 '^summary:')" || summary=""
+  if [ -z "$summary" ]; then
+    warn "PR #$pr: could not parse 'gh-axi pr checks' output — treating as not-yet-green"
+    printf '%s\n' "$out" >&2
+    return 2
+  fi
+  passed="$(printf '%s' "$summary" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" || passed=""
+  failed="$(printf '%s' "$summary" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+')" || failed=""
+  total="$(printf '%s'  "$summary" | grep -oE '[0-9]+ total'  | grep -oE '[0-9]+')" || total=""
+  passed="${passed:-0}"; failed="${failed:-0}"; total="${total:-0}"
+
+  if [ "$total" -eq 0 ]; then
     warn "no CI checks on PR #$pr — nothing to gate on"; return 0
   fi
-  if printf '%s' "$out" | grep -qiE '\bfail|\berror|✗|✘'; then warn "PR #$pr: failing checks"; return 1; fi
-  if printf '%s' "$out" | grep -qiE 'pending|in.progress|queued|running|●'; then info "PR #$pr: checks pending"; return 2; fi
-  info "PR #$pr: checks green"; return 0
+  if [ "$failed" -gt 0 ]; then warn "PR #$pr: $failed failing check(s)"; return 1; fi
+  # Anything neither passed nor failed is still running/queued.
+  if [ "$((passed + failed))" -lt "$total" ]; then
+    info "PR #$pr: checks pending ($((total - passed - failed)) of $total outstanding)"; return 2
+  fi
+  info "PR #$pr: checks green ($passed/$total)"; return 0
 }
