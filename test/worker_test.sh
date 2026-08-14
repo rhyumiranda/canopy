@@ -91,7 +91,6 @@ printf '%s' "$(cat "$LOGF")" | grep -q 'thread.started' && ok "worker log captur
     . "$CANOPY_ROOT/lib/state.sh"
     . "$CANOPY_ROOT/lib/agent.sh"
     . "$CANOPY_ROOT/lib/worker.sh"
-    . "$CANOPY_ROOT/lib/herdr.sh"
     kill() { printf "%s\\n" "$*" >> "$STOP_CALLS"; return 0; }
     _canopy_worker_stop_headless "$SID"
   ' )
@@ -129,17 +128,16 @@ case " $(cat "$ARGV_LOG") " in *" -a "*|*" --ask-for-approval "*) bad "codex rev
 
 ID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex "$CANOPY" task add 'default codex worker' 2>/dev/null)"
 ( cd "$R" && "$CANOPY" task set "$ID2" worktree "$R" >/dev/null 2>&1 )
-SID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker start --headless "$ID2" 2>/dev/null)"
-[ "$SID2" = "codex-session-123" ] && ok "headless start follows Codex orchestrator" || bad "headless start did not use Codex"
-[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID2.json")" = codex ] && ok "headless start records Codex backend" || bad "headless start backend missing"
+SID2="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=codex CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker spawn "$ID2" 2>/dev/null)"
+[ "$SID2" = "codex-session-123" ] && ok "spawn follows Codex orchestrator default" || bad "spawn did not use Codex"
+[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID2.json")" = codex ] && ok "spawn records Codex backend" || bad "spawn backend missing"
 ( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID2" >/dev/null 2>&1 )
 
-ID3="$(cd "$R" && "$CANOPY" task add 'recorded backend wins' 2>/dev/null)"
+ID3="$(cd "$R" && "$CANOPY" task add 'explicit backend flag' 2>/dev/null)"
 ( cd "$R" && "$CANOPY" task set "$ID3" worktree "$R" >/dev/null 2>&1 )
-( cd "$R" && "$CANOPY" task set "$ID3" agent codex >/dev/null 2>&1 )
-SID3="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=claude CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker start --headless "$ID3" 2>/dev/null)"
-[ "$SID3" = "codex-session-123" ] && ok "headless start prefers recorded task backend" || bad "headless start used orchestrator backend"
-[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID3.json")" = codex ] && ok "headless start preserves recorded backend" || bad "headless start changed recorded backend"
+SID3="$(cd "$R" && PATH="$BIN:$PATH" CANOPY_ORCHESTRATOR_AGENT=claude CANOPY_FAKE_CODEX_SLEEP=30 "$CANOPY" worker spawn --agent codex "$ID3" 2>/dev/null)"
+[ "$SID3" = "codex-session-123" ] && ok "spawn --agent codex overrides orchestrator default" || bad "spawn --agent did not use codex"
+[ "$(jq -r '.agent' "$R/.canopy/tasks/$ID3.json")" = codex ] && ok "spawn records the chosen backend" || bad "spawn backend not recorded"
 ( cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker stop "$ID3" >/dev/null 2>&1 )
 
 echo
