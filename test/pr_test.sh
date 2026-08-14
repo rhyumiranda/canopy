@@ -21,6 +21,61 @@ printf '%s' "$LINE" | grep -q '✅ test'  && ok "status shows passing check" || 
 printf '%s' "$LINE" | grep -q '❌ lint'  && ok "status shows failing check" || bad "no ❌ lint"
 [ "$rc" -ne 0 ] && ok "status non-zero when a check fails" || bad "status should fail"
 
+echo "== pr checks gate =="
+# gh-axi emits AXI-structured TOON; canopy_pr_checks must read the summary COUNTS.
+# The old substring scan called a check NAMED `lint-error-scan` a failure, and any
+# output it didn't recognize "green".
+GBIN="$WORK/ghbin"; mkdir -p "$GBIN"
+cat > "$GBIN/gh-axi" <<'EOF'
+#!/usr/bin/env bash
+cat "${GH_AXI_FIXTURE:?}"
+EOF
+chmod +x "$GBIN/gh-axi"
+GR="$WORK/prrepo"; mkdir -p "$GR"
+( cd "$GR"; git init -q; git config user.email t@t; git config user.name t; echo a>f; git add -A; git commit -qm base ) >/dev/null 2>&1
+cd "$GR"; "$CANOPY" init >/dev/null 2>&1
+CID="$("$CANOPY" task add "checks gate" 2>/dev/null)"
+"$CANOPY" task set "$CID" pr 7 >/dev/null
+
+checks_rc() {   # <fixture-body> -> exit code of `canopy pr checks`
+  printf '%s\n' "$1" > "$WORK/fixture.toon"
+  ( cd "$GR" && PATH="$GBIN:$PATH" GH_AXI_FIXTURE="$WORK/fixture.toon" "$CANOPY" pr checks "$CID" >/dev/null 2>&1 )
+  printf '%s' "$?"
+}
+rceq() { [ "$2" = "$3" ] && ok "$1" || { bad "$1"; printf '       want rc=%s got rc=%s\n' "$3" "$2"; }; }
+
+rceq "all green -> 0" "$(checks_rc 'summary: "2 passed, 0 failed, 2 total"
+checks[2]{name,conclusion}:
+  test,pass
+  lint,pass')" "0"
+
+rceq "a real failure -> 1" "$(checks_rc 'summary: "1 passed, 1 failed, 2 total"
+checks[2]{name,conclusion}:
+  test,pass
+  lint,fail')" "1"
+
+rceq "still running -> 2" "$(checks_rc 'summary: "1 passed, 0 failed, 3 total"
+checks[3]{name,conclusion}:
+  test,pass
+  lint,pending
+  build,pending')" "2"
+
+# Real gh-axi for a no-CI PR emits NO summary:/total line — just this string.
+# The old fabricated `summary: "0 passed, 0 failed, 0 total"` fixture is what let
+# the "blocks no-CI PRs" regression slip through.
+rceq "no CI configured -> 0" "$(checks_rc 'checks: "0 passed, 0 failed — this PR has no CI checks configured"')" "0"
+
+# the regression: a PASSING check whose NAME contains "error"/"fail"
+rceq "check named *-error-scan is not read as a failure" "$(checks_rc 'summary: "2 passed, 0 failed, 2 total"
+checks[2]{name,conclusion}:
+  lint-error-scan,pass
+  fail-fast-suite,pass')" "0"
+
+# unparseable output must NOT be reported as green
+rceq "unrecognized output -> 2, never green" "$(checks_rc 'Error: could not reach GitHub')" "2"
+
+cd "$WORK"
+
 echo "== PR body template =="
 R="$WORK/repo"; mkdir -p "$R"; ( cd "$R"; git init -q; git config user.email t@t; git config user.name t; echo a>f; git add -A; git commit -qm base )
 cd "$R"; "$CANOPY" init >/dev/null 2>&1
