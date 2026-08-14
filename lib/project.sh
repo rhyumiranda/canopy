@@ -72,6 +72,7 @@ canopy_project_ls() {
       printf '%s\t%s\n' "$name" "$d"
     fi
   done
+  toon_help "canopy project path <name> to resolve a path; canopy status --all for every board"
 }
 
 # canopy project path <name> — resolve a project name to its absolute path.

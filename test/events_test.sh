@@ -58,7 +58,7 @@ OUT="$(PATH="$STUB:$PATH" HOME="$H" CANOPY_EVENTS_POLL_INTERVAL=1 "$CANOPY" even
   && ok "wait actively probes the pane and returns the terminal event (TCC-independent)" \
   || bad "wait should self-probe and return done (rc=$rc): $OUT"
 # and it flipped the board status as a side effect of the probe
-ST="$(HOME="$H" "$CANOPY" task show "$ID2" 2>/dev/null | jq -r '.status')"
+ST="$(HOME="$H" "$CANOPY" task show "$ID2" --full 2>/dev/null | jq -r '.status')"
 [ "$ST" = "done" ] && ok "probe flipped the task to done" || bad "task should be done, is $ST"
 
 # --- (c) clean timeout when nothing is happening and no Herdr is available ---
