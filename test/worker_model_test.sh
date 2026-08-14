@@ -13,16 +13,16 @@ command -v jq >/dev/null || { echo "jq required"; exit 1; }
 
 echo "== worker model pin =="
 
-# --- unit: _worker_model_for resolves the pin, honors the override, empty for codex
+# --- unit: _worker_model_for resolves the Opus default and honors the override.
+# Claude-only by design: there is intentionally NO codex worker model lever (the
+# codex launch paths pass no -m), so the helper takes no agent arg.
 export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/common.sh"
 . "$CANOPY_ROOT/lib/state.sh"
 . "$CANOPY_ROOT/lib/agent.sh"
 . "$CANOPY_ROOT/lib/worker.sh"
-( unset CANOPY_WORKER_MODEL; eq "default worker model is Opus 4.8" "$(_worker_model_for claude)" "claude-opus-4-8" )
-eq "CANOPY_WORKER_MODEL overrides the pin" "$(CANOPY_WORKER_MODEL=claude-sonnet-4-5 _worker_model_for claude)" "claude-sonnet-4-5"
-eq "codex worker model empty unless set" "$(unset CANOPY_CODEX_WORKER_MODEL; _worker_model_for codex)" ""
-eq "CANOPY_CODEX_WORKER_MODEL sets codex worker" "$(CANOPY_CODEX_WORKER_MODEL=gpt-x _worker_model_for codex)" "gpt-x"
+( unset CANOPY_WORKER_MODEL; eq "default worker model is Opus 4.8" "$(_worker_model_for)" "claude-opus-4-8" )
+eq "CANOPY_WORKER_MODEL overrides the pin" "$(CANOPY_WORKER_MODEL=claude-sonnet-4-5 _worker_model_for)" "claude-sonnet-4-5"
 
 # --- integration: `canopy worker spawn` (default claude) passes --model at launch
 BIN="$WORK/bin"; mkdir -p "$BIN"
@@ -52,10 +52,6 @@ ID2="$(cd "$R" && "$CANOPY" task add "feat: override model" 2>/dev/null)"
 ( cd "$R" && "$CANOPY" task set "$ID2" worktree "$R" >/dev/null 2>&1 )
 ( cd "$R" && HOME="$WORK/home" PATH="$BIN:$PATH" CANOPY_ARGV_LOG="$ARGV_LOG" CANOPY_WORKER_MODEL=claude-sonnet-4-5 "$CANOPY" worker spawn "$ID2" >/dev/null 2>&1 )
 grep -q -- '--model claude-sonnet-4-5' "$ARGV_LOG" && ok "CANOPY_WORKER_MODEL override reaches the launch" || { cat "$ARGV_LOG" >&2; bad "override did not reach the launch"; }
-
-# The empty-model guard (no stray --model flag) only fires on the codex worker path,
-# where _worker_model_for has no default; the claude path always carries the Opus
-# default. The unit assertion above ("codex worker model empty unless set") covers it.
 
 echo
 echo "== $PASS passed, $FAIL failed =="

@@ -557,7 +557,7 @@ _herdr_launch_claude() {
   # Pin the worker model (Opus 4.8 by default) at launch — _agent_body strips the
   # frontmatter, so a `model:` line can't reach the interactive worker; only this
   # --model flag does. Same source of truth as the detached spawn (_worker_model_for).
-  model="$(_worker_model_for claude)"; [ -z "$model" ] || model_arg=(--model "$model")
+  model="$(_worker_model_for)"; [ -z "$model" ] || model_arg=(--model "$model")
   # CANOPY_ROLE=worker: the worker shares the orchestrator's .canopy via
   # git-common-dir, so canopy_role_guard must refuse orchestrator-only commands
   # it might run. Without this it would inherit CANOPY_ROLE=orchestrator.
