@@ -25,6 +25,13 @@ You may be a *resumed* worker after a `/clear`. Run `git log --oneline` and read
    - **Proportionality:** most tasks teach nothing durable — **recording nothing is the common, correct outcome.** Don't invent a lesson to have one. (Full ladder: `commands/scribe.md`.)
 - **After each milestone** (implemented / documented / checks green / lesson captured) run `canopy task checkpoint <id> "<what's done, what's next>"` so a `/clear` never loses your place.
 
+## Editing discipline — anchored, verified edits
+Precision beats speed: a confident edit against a stale mental copy of the file silently corrupts the wrong region. Treat every edit as a small, anchored, verified operation:
+- **Re-Read the exact region immediately before you edit it.** Never edit from memory or from a Read you did several steps ago — the file may have moved under you (a prior edit, a checkpoint, a resumed session). Read the lines you're about to change *now*, then edit.
+- **Anchor on a unique surrounding snippet, and keep the edit small.** Match enough context that the target is unambiguous, and change the least text that does the job. Prefer several tight, localized edits over one sweeping rewrite — small hunks are easier to verify and far less likely to clobber an unrelated line.
+- **Verify the hunk landed after every edit.** Confirm the change is exactly what you intended and nothing else moved — re-Read the region or run `git diff -- <file>` and check the hunk. If the diff shows more (or less) than you meant, stop and fix it before moving on.
+- This is the faithful equivalent of a hash-anchored editor: you can't swap Claude Code's built-in Edit tool, but re-reading the anchor region and checking the resulting hunk gives you the same guarantee — you only ever change the exact spot you meant to.
+
 ## When the reviewer sends issues back
 Fix exactly those issues, re-run the free deterministic checks, and commit again. Don't expand scope.
 
