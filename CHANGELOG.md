@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/rhyumiranda/canopy/compare/v0.11.1...v0.11.2) (2026-08-14)
+
+
+### Bug Fixes
+
+* **ci:** let auto-merge step resolve repo without a checkout ([#71](https://github.com/rhyumiranda/canopy/issues/71)) ([a2cb732](https://github.com/rhyumiranda/canopy/commit/a2cb732b62b770dbd05505999a2b339952bc8740))
+
 ## [0.11.1](https://github.com/rhyumiranda/canopy/compare/v0.11.0...v0.11.1) (2026-08-14)
 
 
