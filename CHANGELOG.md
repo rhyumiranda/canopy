@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.3](https://github.com/rhyumiranda/canopy/compare/v0.11.2...v0.11.3) (2026-08-14)
+
+
+### Bug Fixes
+
+* four regressions that only affect the installed CLI ([#74](https://github.com/rhyumiranda/canopy/issues/74)) ([2042e63](https://github.com/rhyumiranda/canopy/commit/2042e638568fb1ff6350dddf716c7e78cd10bbb7))
+
 ## [0.11.2](https://github.com/rhyumiranda/canopy/compare/v0.11.1...v0.11.2) (2026-08-14)
 
 
