@@ -74,6 +74,27 @@ else
   bad "installed canopy cannot run: $OUTV"
 fi
 
+# --- regression: the snapshot must carry EVERY dir the CLI reads at runtime ---
+# canopy_init reads $CANOPY_ROOT/dist/codex-hooks.json, and $CANOPY_ROOT is this
+# snapshot when canopy runs via the PATH symlink. dist/ was missing, so `canopy
+# init` exited 1 for every installed user — and `set -e` killed it BEFORE it
+# gitignored .canopy/ or ran `treehouse init`. Invisible to every other test,
+# which runs bin/canopy straight from the checkout.
+[ -f "$APP/dist/codex-hooks.json" ]    && ok "snapshot has dist/"           || bad "snapshot missing dist/"
+IR="$WORK/initrepo"; mkdir -p "$IR"
+( cd "$IR" && git init -q && git config user.email t@t && git config user.name t \
+    && echo hi > f.txt && git add -A && git commit -qm init ) >/dev/null 2>&1
+if IOUT="$( cd "$IR" && HOME="$H" "$H/.local/bin/canopy" init 2>&1 )"; then
+  ok "installed canopy init succeeds"
+else
+  bad "installed canopy init failed: $IOUT"
+fi
+[ -f "$IR/.canopy/state.json" ]  && ok "installed init wrote .canopy/state.json"  || bad "installed init wrote no state"
+[ -f "$IR/.codex/hooks.json" ]   && ok "installed init wrote .codex/hooks.json"   || bad "installed init wrote no codex hooks"
+grep -qxF '.canopy/' "$IR/.gitignore" 2>/dev/null \
+  && ok "installed init gitignored .canopy/ (steps after the cp still ran)" \
+  || bad "installed init did not gitignore .canopy/"
+
 # --- guard: running setup from the installed snapshot refuses (no self-copy) ---
 if HOME="$H" CANOPY_CHANNEL_UPSTREAM="$ORIGIN" "$H/.local/bin/canopy" setup >/dev/null 2>&1; then
   bad "setup from the installed snapshot should refuse"

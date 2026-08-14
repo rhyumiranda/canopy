@@ -51,10 +51,16 @@ _canopy_install_snapshot() {
 
   # Stable CLI snapshot: bin+lib+agents copied so the PATH command is decoupled from
   # the dev working tree. Remove-then-copy so a renamed/deleted file never lingers.
-  _do "rm -rf '$app/bin' '$app/lib' '$app/agents'"
+  # `dist/` MUST ship in the snapshot: `canopy init` reads
+  # $CANOPY_ROOT/dist/codex-hooks.json, and $CANOPY_ROOT is this snapshot when
+  # canopy runs via the PATH symlink. Omitting it made `canopy init` die (exit 1)
+  # for every installed user — before it gitignored `.canopy/` or ran `treehouse
+  # init` — while still passing tests, which run bin/canopy from the checkout.
+  _do "rm -rf '$app/bin' '$app/lib' '$app/agents' '$app/dist'"
   _do "cp -R '$source_root/bin' '$app/bin'"
   _do "cp -R '$source_root/lib' '$app/lib'"
   _do "cp -R '$source_root/agents' '$app/agents'"
+  _do "cp -R '$source_root/dist' '$app/dist'"
   _do "ln -sf '$app/bin/canopy' '$bindir/canopy'"
 
   if [ "$dry" = 1 ]; then
