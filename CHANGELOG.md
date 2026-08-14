@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/rhyumiranda/canopy/compare/v0.8.4...v0.9.0) (2026-08-14)
+
+
+### Features
+
+* **state:** add task dependencies and a contract-first lease gate ([#60](https://github.com/rhyumiranda/canopy/issues/60)) ([011e9dd](https://github.com/rhyumiranda/canopy/commit/011e9dd5a825addc1ed6014e167b3cb6ccb447d6))
+
 ## [0.8.4](https://github.com/rhyumiranda/canopy/compare/v0.8.3...v0.8.4) (2026-08-12)
 
 
