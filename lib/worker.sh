@@ -1,6 +1,22 @@
 # worker.sh — spawn/observe detached workers. Sourced, not executed.
 # shellcheck shell=bash
 
+# _worker_model_for -> the model the CLAUDE worker runs on. Canopy launches the
+# worker via the CLI (`claude --bg` / Herdr `claude`), which STRIPS an agent-file's
+# frontmatter and passes only the body — so a `model:` line in agents/worker.md
+# would be a NO-OP. The real pin has to be a `--model` flag at launch, which the
+# claude launch sites below pass. Default: Opus 4.8 (claude-opus-4-8); override with
+# CANOPY_WORKER_MODEL. Offline-safe: it only names a model, never touches the
+# network. An empty value means "don't pass --model" (let the backend pick its own).
+#
+# Claude-only by design: a Codex worker has no per-exec model pin here — the codex
+# worker launch paths (_worker_spawn_codex / _herdr_launch_codex) don't pass `-m`,
+# so there is no codex lever to expose. Codex model selection is an account/settings
+# concern, not a canopy launch flag; don't add a phantom env var that does nothing.
+_worker_model_for() {
+  printf '%s\n' "${CANOPY_WORKER_MODEL:-claude-opus-4-8}"
+}
+
 # parse the session id out of `claude --bg` output (strip ANSI, anchor on "backgrounded")
 _parse_bg_id() {
   sed $'s/\x1b\\[[0-9;]*m//g' \
@@ -26,15 +42,19 @@ _worker_agent_flag() {
 
 _worker_spawn_claude() {
   local id="${1:?task id}" path="${2:?worktree}" title="${3:?title}" brief="${4:-}" sid settings
-  local -a settings_arg=()
+  local model; local -a settings_arg=() model_arg=()
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
   # Seed the Stop hook so this worker reports idle + a lifecycle event on completion.
   settings="$(_worker_claude_settings "$id" || true)"
   [ -z "$settings" ] || settings_arg=(--settings "$settings")
+  # Pin the worker model (Opus 4.8 by default) at launch — frontmatter model is
+  # stripped by _agent_body, so this flag is the ONLY thing that takes effect.
+  model="$(_worker_model_for)"; [ -z "$model" ] || model_arg=(--model "$model")
   # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
   # (resolved via git-common-dir); without it the worker inherits orchestrator.
   sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
+            ${model_arg[@]+"${model_arg[@]}"} \
             ${settings_arg[@]+"${settings_arg[@]}"} \
             --append-system-prompt "$(_agent_body worker)" \
             "$(_worker_prompt "$id" "$title" "$brief")" 2>&1 | _parse_bg_id )"
@@ -162,12 +182,16 @@ ${issues}"
       need claude
       # Pre-trust the leased worktree so claude never stalls on the trust dialog.
       _claude_trust_path "$path"
-      local settings; local -a settings_arg=()
+      local settings model; local -a settings_arg=() model_arg=()
       settings="$(_worker_claude_settings "$id" || true)"
       [ -z "$settings" ] || settings_arg=(--settings "$settings")
+      # Same worker-model pin as the initial spawn — the fix round must run on the
+      # same model, and frontmatter alone can't set it (see _worker_model_for).
+      model="$(_worker_model_for)"; [ -z "$model" ] || model_arg=(--model "$model")
       # CANOPY_ROLE=worker so the worker can't mutate the shared orchestrator .canopy
       # (resolved via git-common-dir); without it the worker inherits orchestrator.
       sid="$( cd "$path" && CANOPY_ROLE=worker claude --bg --dangerously-skip-permissions \
+                ${model_arg[@]+"${model_arg[@]}"} \
                 ${settings_arg[@]+"${settings_arg[@]}"} \
                 --append-system-prompt "$(_agent_body worker)" "$prompt" 2>&1 | _parse_bg_id )"
       [ -n "$sid" ] || die "could not read fix-worker session id"

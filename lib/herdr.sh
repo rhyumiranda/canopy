@@ -548,17 +548,22 @@ canopy_worker_idle() {
 }
 
 _herdr_launch_claude() {
-  local id="$1" path="$2" tab="$3" prompt="$4" name="$5" settings
-  local -a settings_arg=()
+  local id="$1" path="$2" tab="$3" prompt="$4" name="$5" settings model
+  local -a settings_arg=() model_arg=()
   # Pre-trust the leased worktree so claude never stalls on the trust dialog.
   _claude_trust_path "$path"
   settings="$(_worker_claude_settings "$id" || true)"
   [ -z "$settings" ] || settings_arg=(--settings "$settings")
+  # Pin the worker model (Opus 4.8 by default) at launch — _agent_body strips the
+  # frontmatter, so a `model:` line can't reach the interactive worker; only this
+  # --model flag does. Same source of truth as the detached spawn (_worker_model_for).
+  model="$(_worker_model_for)"; [ -z "$model" ] || model_arg=(--model "$model")
   # CANOPY_ROLE=worker: the worker shares the orchestrator's .canopy via
   # git-common-dir, so canopy_role_guard must refuse orchestrator-only commands
   # it might run. Without this it would inherit CANOPY_ROLE=orchestrator.
   "$(_herdr_bin)" agent start "$name" --cwd "$path" --tab "$tab" --no-focus -- \
-    env CANOPY_ROLE=worker claude --dangerously-skip-permissions ${settings_arg[@]+"${settings_arg[@]}"} \
+    env CANOPY_ROLE=worker claude --dangerously-skip-permissions \
+    ${model_arg[@]+"${model_arg[@]}"} ${settings_arg[@]+"${settings_arg[@]}"} \
     --append-system-prompt "$(_agent_body worker)" "$prompt"
 }
 
