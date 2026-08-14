@@ -82,7 +82,7 @@ git clone https://github.com/rhyumiranda/canopy.git && cd canopy
 ./bin/canopy setup                     # agents/commands/hooks -> ~/.claude; a CLI snapshot -> ~/.local/share/canopy; canopy -> PATH
 ./bin/canopy setup --channel codex-preview
 export PATH="$HOME/.local/bin:$PATH"   # if it isn't already
-canopy watch install                   # optional (macOS): on merge, marks tasks done and safe-closes their Herdr tab; records terminal events.
+canopy watch install                   # optional (macOS): on merge, marks tasks done, returns the worktree, and records terminal lifecycle events.
                                        # writes a launchd plist; run the printed launchctl command to load it.
                                        # (Linux: schedule `canopy watch once` via cron instead.)
 ```
@@ -104,13 +104,9 @@ canopy start --codex                   # opens Codex AS the orchestrator
 
 `canopy start` is the whole point: it launches Claude Code with the orchestrator playbook loaded, reads `.canopy/`, recovers any in-flight work, and then just waits for your intent — you tell it what you want, it drives the rest. (`canopy init` alone only makes the repo ready; `start` is what makes Claude know what to do.)
 
-`canopy start --codex` defaults unspecified workers to interactive Codex panes in an existing Herdr workspace. Claude remains the default when Claude is the orchestrator. Use `--agent claude` to choose a backend, or explicit `--headless`/`worker spawn` for detached work. Canopy never creates a Herdr workspace; pass `--workspace <id>` when discovery cannot use the current pane.
+`canopy start --codex` runs the orchestrator on Codex; `canopy start` (Claude) is the default. The default worker is the built-in Agent-tool worker (synchronous, no live pane). Use `--agent claude|codex` to pick a worker backend, or `canopy worker spawn <id>` for detached/unattended work. Live Herdr panes are an experimental feature of the `herdr-preview` channel only.
 
-Herdr workers reuse one existing user workspace (for example Stashlify) and create one non-focused tab per task/backend, labeled `t5 · Claude` or `t5 · Codex`. Both backends launch as a steerable interactive session seeded with the task prompt (Codex gets its prompt as the TUI's initial message, not a one-shot headless run). Pass `--workspace <id>` when the current Herdr pane is not the desired context. Canopy never creates a Herdr workspace. Each Herdr worker also gets a one-shot launchd supervisor keyed to its task, pane, tab, and agent session; it records terminal outcomes (`done`, `failed`, `blocked`, `interrupted`) as durable lifecycle events without closing user tabs or creating workspaces. A manual `canopy worker stop` of a still-active worker also records an `interrupted` outcome. Herdr's agent status is source-pinned to the last state Canopy pushes, so a worker that finishes its turn and idles at the prompt would otherwise leave Herdr showing a stale `working` and the orchestrator blind to the completion. To close that gap, every Claude worker is launched with a seeded Stop hook (`--settings` pointing at a per-worker `.canopy/worker-settings/<id>.json`) that runs `canopy worker idle <id>` on each end-of-turn: it re-pins Herdr to `idle` and enqueues a lifecycle event so the orchestrator wakes. That command also reconciles against Herdr's live `agent explain` detection — if the worker actually entered a terminal state it emits that terminal event instead of the `idle` wake. Lifecycle events dedupe per active phase: a repeated probe of the same continuous terminal state is suppressed, but once a worker leaves a terminal state (or is restarted/resumed) a later re-entry into the same state on the same pane/session wakes the orchestrator again. The detached `worker spawn` path remains available for both Claude and Codex.
-
-Closing a worker's tab is guarded by a single live-detection chokepoint (`_herdr_safe_to_close`): a tab/pane is torn down only when its task is truly shipped (status `done` **and** its PR merged) **and** its pane's live `agent explain` state is not `working`. The working check reads the real terminal, never the source-pinnable report status, so it neither kills a still-working session nor leaves a finished one unclosable when its pinned status staled at `working`. `canopy worker clean [--all]` closes every safe-to-close worker in one pass (and refuses the rest with a logged reason) — cleanup is a real command, not manual pane-id surgery. The same guard runs on merge (the watcher auto-closes the tab) and on `CANOPY_WORKER_CLEANUP=1 canopy worker stop <id>`.
-
-The Herdr worker commands (`worker start · attach · send · status · read · resume · reconcile · close · clean · stop`) layer [AXI](https://github.com/kunchenguid/axi) ergonomics on top of the base worker model without changing its behavior: non-interactive with strict flag parsing (an unknown/misplaced flag or a missing required argument fails loud with exit code 2 and lists the valid flags on stdout, so an agent self-corrects in one turn), a concise `--help` per subcommand, and compact [TOON](https://toonformat.dev/) confirmation lines on the action commands `start`/`send`/`stop`/`close` (e.g. `task: t5` / `pane: …` / `stopped: ok`). The pane/tab ownership guard and the bounded, structured **JSON** output of `worker status`/`read` are unchanged — status stays JSON, not TOON. Usage errors are structured on stdout; runtime diagnostics stay on stderr so stdout is parseable. Run `canopy worker <cmd> --help` for the per-command reference.
+**Experimental — Herdr live panes (`herdr-preview` channel only):** on the `herdr-preview` channel each worker can run in a live, human-watchable Herdr terminal via `canopy worker start` (plus `attach`/`send`/`status`/`read`/`resume`/`reconcile`/`close`/`clean`). These commands are **not available on stable** — on `main` they exit non-zero with a pointer to `canopy setup --channel herdr-preview`. On stable, use the built-in Agent-tool worker (default) or `canopy worker spawn` (detached).
 
 **Under the hood** — the raw primitives the orchestrator drives (you rarely run these by hand):
 ```bash
@@ -120,19 +116,8 @@ canopy task set "$id" why   "the load balancer needs a liveness probe"
 canopy worktree lease "$id"            # isolated worktree + feature branch
 canopy worker spawn "$id"              # detached worker using the orchestrator's runtime
 canopy worker spawn --agent codex "$id" # explicitly detached Codex worker (jsonl + resumable session)
-                                       # (via `canopy start`, workers are steerable Herdr panes;
-                                       #  `worker spawn` is the explicit detached path)
-canopy worker start --agent claude --workspace <id> "$id" # Herdr tab worker (existing workspace)
-canopy worker start --agent codex --workspace <id> "$id"  # Codex Herdr worker
-canopy worker start --headless "$id"                   # detached worker; uses recorded task backend when present
-canopy worker attach "$id"              # attach to its Herdr tab
-canopy worker send "$id" "status?"       # send text to its agent
-canopy worker reconcile --agent claude "$id" # clear legacy Herdr IDs after verifying old backend
-canopy worker status "$id"               # bounded JSON summary + read command
-canopy worker read "$id"                 # fuller bounded conversation/context
-canopy worker resume --agent codex "$id" # continue a Claude task in Codex; reuses its saved Herdr workspace
-canopy worker close "$id"               # requires ready_for_review + passing checks
-canopy worker clean --all              # close every safe worker (done + PR-merged + live-idle); refuses the rest
+                                       # (default worker = built-in Agent tool via `canopy start`;
+                                       #  `worker spawn` is the explicit detached path. Live Herdr panes are herdr-preview-only.)
 canopy events consume                  # one pending terminal worker/PR event, then mark consumed
 canopy events wait 30                  # bounded one-shot wait; not a supervisor loop
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
@@ -152,7 +137,7 @@ canopy status                          # the board
 | Codex skill | `$scribe` | Record a durable project fact from Codex. Installed by `canopy setup`. |
 | Codex skill | `$hotfix` | Start the urgent Canopy hotfix path from Codex. Installed by `canopy setup`. |
 
-Resuming after a `/clear`? `canopy recover` first consumes durable terminal events from `.canopy/events/lifecycle.json`, then re-spawns in-flight workers from their last checkpoint — continue, don't restart. Herdr resume uses an explicit `--workspace` first, then the task's saved `herdr_workspace_id`, then normal global/current discovery. For legacy Herdr state without a recorded backend, identify the old backend and run `canopy worker reconcile --agent claude|codex <id>`; it validates and closes only the exact owned pane/tab, then resume explicitly. `worker status` and `worker read` reject legacy Herdr IDs until that reconciliation records a backend. A live Herdr supervisor pane may get a best-effort `agent send` and Herdr/macOS notification when a watcher sees a new terminal event, but a cleared/exited Codex session cannot be woken by a file alone. The durable event is the reliable fallback for the next `canopy recover` or `canopy events consume`.
+Resuming after a `/clear`? `canopy recover` first consumes durable terminal events from `.canopy/events/lifecycle.json`, then re-spawns in-flight workers from their last checkpoint — continue, don't restart. The durable lifecycle event is the reliable signal for the next `canopy recover` or `canopy events consume`. (On the `herdr-preview` channel, recover instead re-attaches the live pane — see that channel's docs.)
 
 Full CLI: `init · start · status · task · events · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
 

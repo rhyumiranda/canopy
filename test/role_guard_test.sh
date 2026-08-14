@@ -38,7 +38,7 @@ fi
 
 # --- every other orchestrator-only mutation is refused under worker role ---
 refused() { ( cd "$R" && CANOPY_ROLE=worker "$CANOPY" "$@" ) >/dev/null 2>&1; }
-for c in "task status $ID done" "task add sneaky" "worker start $ID" "worker spawn $ID" \
+for c in "task status $ID done" "task add sneaky" "worker spawn $ID" \
          "worktree lease $ID" "pr open $ID" "mode yolo" "base main" "init" "recover"; do
   # shellcheck disable=SC2086
   if refused $c; then bad "worker should be refused: canopy $c"; else ok "worker refused: canopy $c"; fi
@@ -60,9 +60,7 @@ allowed version                                 && ok "worker allowed: version" 
 ( cd "$R" && env -u CANOPY_ROLE "$CANOPY" task set "$ID" pr 8 ) >/dev/null 2>&1 \
   && ok "plain shell (no role) can still mutate tasks" || bad "unset role must not be blocked"
 
-# --- workers are launched with CANOPY_ROLE=worker (guard is inert otherwise) ---
-grep -q 'env CANOPY_ROLE=worker claude' "$ROOT/lib/herdr.sh" && ok "herdr claude worker launched as CANOPY_ROLE=worker" || bad "herdr claude launch missing CANOPY_ROLE=worker"
-grep -q 'env CANOPY_ROLE=worker codex'  "$ROOT/lib/herdr.sh" && ok "herdr codex worker launched as CANOPY_ROLE=worker"  || bad "herdr codex launch missing CANOPY_ROLE=worker"
+# --- detached workers are launched with CANOPY_ROLE=worker (guard is inert otherwise) ---
 grep -q 'CANOPY_ROLE=worker claude --bg' "$ROOT/lib/worker.sh" && ok "headless claude worker launched as CANOPY_ROLE=worker" || bad "headless claude launch missing CANOPY_ROLE=worker"
 grep -q 'CANOPY_ROLE=worker codex' "$ROOT/lib/worker.sh" && ok "headless codex worker launched as CANOPY_ROLE=worker" || bad "headless codex launch missing CANOPY_ROLE=worker"
 

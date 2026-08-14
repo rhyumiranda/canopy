@@ -2,17 +2,17 @@
 # shellcheck shell=bash
 
 # _worker_model_for -> the model the CLAUDE worker runs on. Canopy launches the
-# worker via the CLI (`claude --bg` / Herdr `claude`), which STRIPS an agent-file's
-# frontmatter and passes only the body — so a `model:` line in agents/worker.md
-# would be a NO-OP. The real pin has to be a `--model` flag at launch, which the
-# claude launch sites below pass. Default: Opus 4.8 (claude-opus-4-8); override with
-# CANOPY_WORKER_MODEL. Offline-safe: it only names a model, never touches the
-# network. An empty value means "don't pass --model" (let the backend pick its own).
+# worker via the CLI (`claude --bg`), which STRIPS an agent-file's frontmatter and
+# passes only the body — so a `model:` line in agents/worker.md would be a NO-OP.
+# The real pin has to be a `--model` flag at launch, which the claude launch sites
+# below pass. Default: Opus 4.8 (claude-opus-4-8); override with CANOPY_WORKER_MODEL.
+# Offline-safe: it only names a model, never touches the network. An empty value
+# means "don't pass --model" (let the backend pick its own).
 #
 # Claude-only by design: a Codex worker has no per-exec model pin here — the codex
-# worker launch paths (_worker_spawn_codex / _herdr_launch_codex) don't pass `-m`,
-# so there is no codex lever to expose. Codex model selection is an account/settings
-# concern, not a canopy launch flag; don't add a phantom env var that does nothing.
+# worker launch path (_worker_spawn_codex) doesn't pass `-m`, so there is no codex
+# lever to expose. Codex model selection is an account/settings concern, not a
+# canopy launch flag; don't add a phantom env var that does nothing.
 _worker_model_for() {
   printf '%s\n' "${CANOPY_WORKER_MODEL:-claude-opus-4-8}"
 }
@@ -38,6 +38,70 @@ _worker_agent_flag() {
   local agent="${1:-}"
   [ -n "$agent" ] && { _canopy_agent_validate "$agent"; return; }
   canopy_agent_default
+}
+
+# _worker_claude_settings <id> — write a per-worker Claude settings file whose Stop
+# hook fires on every end-of-turn and runs `canopy worker idle <id>`; echo its
+# absolute path. That is the completion signal a detached (`worker spawn`) worker
+# gets: a worker that finishes its turn and idles at the prompt emits nothing else,
+# so without this the orchestrator stays blind to the stall. The hook enqueues a
+# durable lifecycle event so the orchestrator wakes (via `canopy events wait` /
+# `canopy recover`). Claude MERGES this via --settings on top of the user's global
+# settings, so the guard/session hooks are untouched; the task id and canopy binary
+# are baked into the command because a Stop hook has no way to learn them at runtime.
+# Best-effort: on any failure it echoes nothing and the launch proceeds without the
+# hook (older behavior).
+_worker_claude_settings() {
+  local id="$1" dir file cmd canopy_bin
+  command -v jq >/dev/null 2>&1 || return 0
+  dir="$(canopy_dir)/worker-settings"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  file="$dir/$id.json"
+  canopy_bin="$CANOPY_ROOT/bin/canopy"
+  cmd="'$canopy_bin' worker idle '$id' >/dev/null 2>&1 || true"
+  jq -n --arg cmd "$cmd" '{hooks:{Stop:[{hooks:[{type:"command",command:$cmd}]}]}}' \
+    > "$file" 2>/dev/null || return 0
+  printf '%s\n' "$file"
+}
+
+# canopy worker idle <id> — invoked by the worker's Claude Stop hook on every
+# end-of-turn. It enqueues a durable, non-terminal 'idle' lifecycle event so the
+# orchestrator learns the turn finished and wakes on completion. This queued event
+# is the ONLY completion signal a detached `worker spawn` worker gets — a worker
+# that finishes its turn and idles at the prompt emits nothing else. Never fails the
+# caller (a Stop hook must not block the worker): every step is guarded.
+canopy_worker_idle() {
+  local id=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help) printf '%s\n' "usage: canopy worker idle <task-id>"; return 0 ;;
+      --) shift; break ;;
+      -*) usage_error "unknown flag $1 for 'worker idle'" "usage: canopy worker idle <task-id>" ;;
+      *) id="$1"; shift; break ;;
+    esac
+  done
+  if [ -z "$id" ] && [ "$#" -gt 0 ]; then id="$1"; fi
+  [ -n "$id" ] || usage_error "missing task-id" "usage: canopy worker idle <task-id>"
+  require_canopy; need jq
+  _assert_task "$id"
+  if task_lifecycle_event "$id" idle "worker idle at end of turn" >/dev/null; then
+    _notify "task $id idle"
+    task_log "$id" "idle hook queued lifecycle event: idle"
+  fi
+}
+
+# _worker_experimental_only [sub] — the interactive Herdr worker subcommands
+# (start/attach/send/status/read/resume/reconcile/close/clean) are an experimental
+# feature not shipped in stable. Point the user at the detached worker or the opt-in
+# channel, and exit 2. (Named without an "herdr" symbol so the no-herdr regression
+# guard, which greps for herdr symbols in lib/, stays green.)
+_worker_experimental_only() {
+  local sub="${1:-}"
+  {
+    printf '%s\n' "canopy worker ${sub:-<cmd>}: interactive Herdr workers are an experimental feature not shipped in stable."
+    printf '%s\n' "Use \`canopy worker spawn [id]\` for a detached worker, or install the experimental channel: \`canopy setup --channel herdr-preview\`."
+  } >&2
+  return 2
 }
 
 _worker_spawn_claude() {
@@ -241,7 +305,7 @@ canopy_worker_stop() {
   local ref=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      -h|--help) _worker_help stop; return 0 ;;
+      -h|--help) printf '%s\n' "usage: canopy worker stop <task-id|session-id>"; return 0 ;;
       --) shift; break ;;
       -*) usage_error "unknown flag $1 for 'worker stop'" "valid flags: --help. usage: canopy worker stop <task-id|session-id>" ;;
       *) ref="$1"; shift; [ "$#" -eq 0 ] || usage_error "unexpected argument: $1" "usage: canopy worker stop <task-id|session-id>"; break ;;
@@ -251,43 +315,16 @@ canopy_worker_stop() {
   if [ -z "$ref" ] && [ "$#" -gt 0 ]; then ref="$1"; fi
   [ -n "$ref" ] || usage_error "missing task-id or session-id" "usage: canopy worker stop <task-id|session-id>"
   require_canopy; need jq
-  local sid id="" agent="" pid="" tf pane tab
+  local tf
   tf="$(task_file "$ref" 2>/dev/null || true)"
-  # Automated-cleanup path: `CANOPY_WORKER_CLEANUP=1 canopy worker stop <id>` must
-  # never close a live/unshipped worker. Route through the same _herdr_safe_to_close
-  # chokepoint the merge-watcher and `worker clean` use: close only when
-  # done+merged AND the live pane is not working; otherwise leave it running.
+  # Automated-cleanup path: `CANOPY_WORKER_CLEANUP=1 canopy worker stop <id>` — the
+  # merge-watcher calls this before returning a merged task's worktree, so stop the
+  # detached worker process or it keeps running against a returned worktree. Best
+  # effort — a completed worker may already have exited.
   if [ -f "$tf" ] && [ "${CANOPY_WORKER_CLEANUP:-0}" = 1 ]; then
-    pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
-    tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
-    if [ -n "$pane" ] || [ -n "$tab" ]; then
-      # Herdr-backed worker: close only through the safe-to-close chokepoint, so a
-      # still-working pane is never torn down.
-      if declare -F _herdr_clean_one >/dev/null 2>&1 && _herdr_clean_one "$ref"; then
-        toon_obj task "$ref" cleaned ok
-      else
-        toon_obj task "$ref" cleaned skipped
-      fi
-    else
-      # Headless worker (no Herdr pane): stop the detached process so a merged task
-      # never leaves one running against a returned worktree (main-only fix). Best
-      # effort — a completed worker may already have exited.
-      _canopy_worker_stop_headless "$ref" >/dev/null 2>&1 || true
-      toon_obj task "$ref" cleaned ok
-    fi
+    _canopy_worker_stop_headless "$ref" >/dev/null 2>&1 || true
+    toon_obj task "$ref" cleaned ok
     return 0
-  fi
-  if [ -f "$tf" ]; then
-    pane="$(jq -r '.herdr_pane_id // empty' "$tf" 2>/dev/null || true)"
-    tab="$(jq -r '.herdr_tab_id // empty' "$tf" 2>/dev/null || true)"
-    if [ -n "$pane" ] || [ -n "$tab" ]; then
-      if declare -F _herdr_worker_stop >/dev/null 2>&1; then
-        _herdr_worker_stop "$ref"
-        toon_obj task "$ref" pane "${pane:--}" stopped ok
-        return 0
-      fi
-      die "task $ref has Herdr state but interactive support is unavailable"
-    fi
   fi
   _canopy_worker_stop_headless "$ref"
   toon_obj worker "$ref" stopped ok

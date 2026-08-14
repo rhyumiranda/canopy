@@ -42,15 +42,13 @@ canopy_recover() {
 
   while read -r id; do
     [ -n "$id" ] || continue
-    local tf status wt branch brief ckpt committed base herdr_ws agent
+    local tf status wt branch brief ckpt committed base
     tf="$(task_file "$id")"; [ -f "$tf" ] || continue
     status="$(jq -r '.status' "$tf")"
     wt="$(jq -r '.worktree // empty' "$tf")"
     branch="$(jq -r '.branch // empty' "$tf")"
     brief="$(jq -r '.brief // ""' "$tf")"
     ckpt="$(jq -r '.checkpoint.note // "(none yet)"' "$tf")"
-    herdr_ws="$(jq -r '.herdr_workspace_id // empty' "$tf")"
-    agent="$(jq -r '.agent // empty' "$tf")"
     committed="  (nothing committed yet)"
     if [ -n "$wt" ] && [ -d "$wt" ]; then
       base="$(git -C "$wt" merge-base HEAD "$(base_branch "$wt")" 2>/dev/null || echo '')"
@@ -69,23 +67,9 @@ committed so far:
 ${committed}
 
 EOF
-    if [ -n "$herdr_ws" ] && [ -n "$agent" ]; then
-      cat <<EOF
-→ Resume the stored Herdr ${agent:-worker} backend:
-  canopy worker resume --workspace ${herdr_ws} ${id}
-This reuses the persisted Herdr workspace and continues from the checkpoint. Do not redo committed work.
-EOF
-    elif [ -n "$herdr_ws" ]; then
-      cat <<EOF
-→ Legacy Herdr state has no backend identity. Identify the old backend, then reconcile it:
-  canopy worker reconcile --agent <claude|codex> ${id}
-After reconciliation, resume explicitly with the desired backend and stored workspace.
-EOF
-    else
-      cat <<EOF
+    cat <<EOF
 → Re-spawn a worker in this worktree (steerable, in-session) and CONTINUE from the checkpoint. Do not redo committed work.
 EOF
-    fi
   done <<< "$ids"
 }
 

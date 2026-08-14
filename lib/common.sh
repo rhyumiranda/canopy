@@ -62,7 +62,6 @@ tasks_dir()    { echo "$(canopy_dir)/tasks"; }
 task_file()    { echo "$(tasks_dir)/$1.json"; }
 events_dir()   { echo "$(canopy_dir)/events"; }
 lifecycle_file() { echo "$(events_dir)/lifecycle.json"; }
-herdr_watchers_dir() { echo "$(canopy_dir)/herdr-watchers"; }
 
 require_canopy() {
   [ -f "$(state_file)" ] || die "no .canopy/ here — run 'canopy init' first"
@@ -77,8 +76,8 @@ require_canopy() {
 # the orchestrator's own board and Herdr identity. Observed: a worker nulled its
 # task's herdr_pane_id/herdr_tab_id/worker_session, so the orchestrator lost the
 # worker, got no terminal event, and silently stalled. Workers are launched with
-# CANOPY_ROLE=worker (see lib/herdr.sh + lib/worker.sh); under that role this
-# refuses the orchestrator-owned commands while still allowing a worker's own
+# CANOPY_ROLE=worker (see lib/worker.sh); under that role this refuses the
+# orchestrator-owned commands while still allowing a worker's own
 # read/verify/checkpoint commands.
 #
 # _worker_cmd_allowed <cmd> <sub>  -> 0 if a worker may run it, 1 otherwise.

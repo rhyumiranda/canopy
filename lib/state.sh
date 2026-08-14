@@ -131,19 +131,6 @@ task_lifecycle_consume() {
   printf '%s\n' "$out"
 }
 
-# _events_wake_probe — best-effort: actively probe live Herdr worker panes so a
-# terminal outcome (done/failed/blocked/interrupted) is enqueued into
-# lifecycle.json even when no launchd supervisor/watcher fires. This runs in the
-# ORCHESTRATOR's own foreground process, which holds the user's file-access
-# grant, so it works where the launchd push path is dead — macOS TCC blocks
-# launchd from reading a repo under ~/Documents|Desktop|Downloads. No-op (and
-# never fatal) when Herdr isn't installed; run in a subshell so an inner `die`
-# can't abort the wait loop.
-_events_wake_probe() {
-  command -v "$(_herdr_bin)" >/dev/null 2>&1 || return 0
-  ( canopy_herdr_watch_once ) >/dev/null 2>&1 || true
-}
-
 canopy_events() {
   local sub="${1:-list}" timeout waited interval
   shift || true
@@ -151,18 +138,15 @@ canopy_events() {
     list) task_lifecycle_list ;;
     consume) task_lifecycle_consume ;;
     wait)
-      # PRIMARY, TCC-independent orchestrator wake source. Each interval we (1)
-      # actively probe the live Herdr panes ourselves and (2) drain the durable
-      # queue, returning the first terminal event as JSON. Events enqueued by the
-      # worker's Stop-hook or by a launchd supervisor are consumed here too — the
-      # active probe is the backstop for when neither of those fires (TCC).
+      # Drain the durable lifecycle queue, returning the first event as JSON. The
+      # queue is fed by the detached worker's Stop hook (`canopy worker idle`) and
+      # by the merge-watcher — polling it here is the orchestrator's wake source
+      # and is TCC-independent (it reads .canopy/ from the session's own process).
       timeout="${1:-60}"; interval="${CANOPY_EVENTS_POLL_INTERVAL:-2}"; waited=0
-      _events_wake_probe
       task_lifecycle_consume && return 0
       while [ "$waited" -lt "$timeout" ]; do
         sleep "$interval"
         waited=$((waited + interval))
-        _events_wake_probe
         task_lifecycle_consume && return 0
       done
       return 1 ;;

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# 'canopy events wait' as the PRIMARY, TCC-independent orchestrator wake source.
-# Proves it (a) returns a pre-queued terminal event, (b) ACTIVELY probes live
-# Herdr panes itself and enqueues+returns a terminal outcome with NO launchd
-# supervisor/watcher in play (the TCC-blocked case), and (c) times out cleanly
-# when nothing is happening. Sandboxed via $HOME + a stub `herdr` on PATH.
-# Run: bash test/events_test.sh
+# 'canopy events wait' as the TCC-independent orchestrator wake source: it drains
+# the durable lifecycle queue (fed by the detached worker's idle Stop hook and the
+# merge-watcher) from the session's own process. Proves it (a) returns a pre-queued
+# terminal event and (b) times out cleanly when nothing is happening. Sandboxed via
+# $HOME. Run: bash test/events_test.sh
 set -uo pipefail
 CANOPY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CANOPY="$CANOPY_ROOT/bin/canopy"
@@ -32,36 +31,18 @@ OUT="$(HOME="$H" CANOPY_EVENTS_POLL_INTERVAL=1 "$CANOPY" events wait 1 2>/dev/nu
 [ "$rc" -eq 0 ] && printf '%s' "$OUT" | jq -e --arg id "$ID" '.task_id==$id and .status=="done"' >/dev/null 2>&1 \
   && ok "returns a pre-queued terminal event" || bad "should return the queued done event (rc=$rc): $OUT"
 
-# --- (b) ACTIVE PROBE: no launchd at all, event only exists because wait probed ---
-# Stub `herdr` on PATH so _herdr_probe_state reports the worker done.
-STUB="$WORK/bin"; mkdir -p "$STUB"
-cat > "$STUB/herdr" <<'EOF'
-#!/usr/bin/env bash
-set -u
-case "$1 ${2:-}" in
-  "pane get") exit 0 ;;                                   # pane still exists
-  "agent explain") printf '{"result":{"agent":{"status":"done"}}}\n'; exit 0 ;;
-  *) exit 0 ;;
-esac
-EOF
-chmod +x "$STUB/herdr"
-
+# --- (b) idle wake: the worker's Stop hook enqueues a non-terminal 'idle' event ---
 R2="$(new_repo)"; cd "$R2"; HOME="$H" "$CANOPY" init >/dev/null 2>&1
-ID2="$(HOME="$H" "$CANOPY" task add "live worker finishing" 2>/dev/null)"
-HOME="$H" "$CANOPY" task status "$ID2" implementing >/dev/null 2>&1   # active, so watch-once probes it
-HOME="$H" "$CANOPY" task set "$ID2" herdr_pane_id "wA:p1" >/dev/null 2>&1
-# Nothing is queued yet; the ONLY path to an event is wait actively probing the pane.
-QN="$(HOME="$H" "$CANOPY" events list 2>/dev/null | wc -l | tr -d ' ')"
-[ "$QN" = "0" ] && ok "no event queued before wait (launchd path absent)" || bad "expected empty queue, got $QN"
-OUT="$(PATH="$STUB:$PATH" HOME="$H" CANOPY_EVENTS_POLL_INTERVAL=1 "$CANOPY" events wait 5 2>/dev/null)"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$OUT" | jq -e --arg id "$ID2" '.task_id==$id and .status=="done"' >/dev/null 2>&1 \
-  && ok "wait actively probes the pane and returns the terminal event (TCC-independent)" \
-  || bad "wait should self-probe and return done (rc=$rc): $OUT"
-# and it flipped the board status as a side effect of the probe
-ST="$(HOME="$H" "$CANOPY" task show "$ID2" --full 2>/dev/null | jq -r '.status')"
-[ "$ST" = "done" ] && ok "probe flipped the task to done" || bad "task should be done, is $ST"
+ID2="$(HOME="$H" "$CANOPY" task add "worker finished a turn" 2>/dev/null)"
+HOME="$H" "$CANOPY" task status "$ID2" implementing >/dev/null 2>&1
+# `canopy worker idle` is exactly what the detached worker's seeded Stop hook runs.
+HOME="$H" "$CANOPY" worker idle "$ID2" >/dev/null 2>&1
+OUT="$(HOME="$H" CANOPY_EVENTS_POLL_INTERVAL=1 "$CANOPY" events wait 2 2>/dev/null)"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$OUT" | jq -e --arg id "$ID2" '.task_id==$id and .status=="idle"' >/dev/null 2>&1 \
+  && ok "idle Stop hook enqueues a wake event that events wait drains" \
+  || bad "wait should return the idle event (rc=$rc): $OUT"
 
-# --- (c) clean timeout when nothing is happening and no Herdr is available ---
+# --- (c) clean timeout when nothing is happening ---
 R3="$(new_repo)"; cd "$R3"; HOME="$H" "$CANOPY" init >/dev/null 2>&1
 HOME="$H" CANOPY_EVENTS_POLL_INTERVAL=1 "$CANOPY" events wait 1 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && ok "times out with exit 1 when no event lands" || bad "expected exit 1 on timeout, got $rc"
