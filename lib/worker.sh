@@ -276,7 +276,10 @@ ${issues}"
 # canopy worker logs <id|sid>  (best-effort tail)
 canopy_worker_logs() {
   require_canopy; need jq
-  local ref="${1:?worker id or session}" sid="$ref" id="" agent="" logf=""
+  # Two `local` lines on purpose: `local ref=… sid="$ref"` reads $ref before the
+  # first assignment lands, which aborts under `set -u` (see AGENTS.md).
+  local ref="${1:?worker id or session}"
+  local sid="$ref" id="" agent="" logf=""
   if [ -f "$(task_file "$ref" 2>/dev/null)" ]; then
     id="$ref"
   else

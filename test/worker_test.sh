@@ -83,8 +83,19 @@ LOGF="$(jq -r '.worker_log' "$R/.canopy/tasks/$ID.json")"
 [ -f "$LOGF" ] && ok "task records worker log" || bad "worker log missing"
 PID="$(jq -r '.worker_pid' "$R/.canopy/tasks/$ID.json")"
 kill -0 "$PID" >/dev/null 2>&1 && ok "task records live worker pid" || bad "worker pid not live"
-OUT="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker logs "$ID" 2>/dev/null)"
 printf '%s' "$(cat "$LOGF")" | grep -q 'thread.started' && ok "worker log captures codex jsonl" || bad "worker log missing jsonl"
+# `worker logs` output must be ASSERTED, not just captured: this call used to
+# stash stdout in a variable nobody read, with stderr sent to /dev/null — so the
+# command aborting on `local ref=… sid="$ref"` (the set -u trap in AGENTS.md,
+# fatal on bash 3.2 AND 5.x) passed the suite while being 100% broken for users.
+OUT="$(cd "$R" && PATH="$BIN:$PATH" "$CANOPY" worker logs "$ID" 2>&1)"; LRC=$?
+[ "$LRC" -eq 0 ] && ok "worker logs exits clean" || bad "worker logs failed (rc=$LRC): $OUT"
+printf '%s' "$OUT" | grep -q 'unbound variable' \
+  && bad "worker logs aborts on the set -u local-line trap" \
+  || ok "worker logs survives set -u"
+printf '%s' "$OUT" | grep -q 'thread.started' \
+  && ok "worker logs tails the codex jsonl" \
+  || bad "worker logs printed no log content: $OUT"
 ( cd "$R" && STOP_CALLS="$WORK/stop.calls" CANOPY_ROOT="$CANOPY_ROOT" SID="$SID" PID="$PID" bash -c '
     set -euo pipefail
     . "$CANOPY_ROOT/lib/common.sh"
