@@ -45,4 +45,5 @@ jobs:
         if: ${{ steps.release.outputs.pr && env.RP_TOKEN != '' }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: gh pr merge --auto --squash "${{ fromJson(steps.release.outputs.pr).number }}"
