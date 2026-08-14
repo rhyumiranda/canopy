@@ -29,8 +29,6 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/worktree.sh"
 # shellcheck source=../lib/worker.sh
 . "$CANOPY_ROOT/lib/worker.sh"
-# shellcheck source=../lib/herdr.sh
-. "$CANOPY_ROOT/lib/herdr.sh"
 # shellcheck source=../lib/checks.sh
 . "$CANOPY_ROOT/lib/checks.sh"
 # shellcheck source=../lib/review.sh
@@ -103,12 +101,6 @@ case "$cmd" in
     esac ;;
   recover)       canopy_recover "$@" ;;
   events)        canopy_events "$@" ;;
-  herdr)
-    sub="${1:-}"; shift || true
-    case "$sub" in
-      supervise) canopy_herdr_supervise "$@" ;;
-      *)         usage_error "unknown 'herdr' subcommand: ${sub:-<none>}" "valid: supervise" ;;
-    esac ;;
   worktree)
     sub="${1:-}"; shift || true
     case "$sub" in
@@ -120,21 +112,14 @@ case "$cmd" in
   worker)
     sub="${1:-}"; shift || true
     case "$sub" in
-      start)      canopy_worker_start "$@" ;;
-      attach)     canopy_worker_attach "$@" ;;
-      send)       canopy_worker_send "$@" ;;
-      status)     canopy_worker_status "$@" ;;
-      read)       canopy_worker_read "$@" ;;
-      resume)     canopy_worker_resume "$@" ;;
-      reconcile)  canopy_worker_reconcile "$@" ;;
-      close)      canopy_worker_close "$@" ;;
-      clean)      canopy_worker_clean "$@" ;;
       spawn)     canopy_worker_spawn "$@" ;;
       fix)       canopy_worker_fix "$@" ;;
       logs)      canopy_worker_logs "$@" ;;
       idle)      canopy_worker_idle "$@" ;;
       stop)      canopy_worker_stop "$@" ;;
-      *)         usage_error "unknown 'worker' subcommand: ${sub:-<none>}" "valid: start, attach, send, status, read, resume, reconcile, close, clean, spawn, fix, logs, idle, stop" ;;
+      start|attach|send|status|read|resume|reconcile|close|clean)
+                 _worker_experimental_only "$sub" ;;
+      *)         usage_error "unknown 'worker' subcommand: ${sub:-<none>}" "valid: spawn, fix, logs, idle, stop" ;;
     esac ;;
   base)          state_base "$@" ;;
   project)
