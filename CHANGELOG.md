@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/rhyumiranda/canopy/compare/v0.10.0...v0.11.0) (2026-08-14)
+
+
+### Features
+
+* **agents:** OMO pre-execution agents + real worker model pin ([#65](https://github.com/rhyumiranda/canopy/issues/65)) ([15f76db](https://github.com/rhyumiranda/canopy/commit/15f76dbe612692a066b41f88c7d9873fa0fa8f28))
+
 ## [0.10.0](https://github.com/rhyumiranda/canopy/compare/v0.9.0...v0.10.0) (2026-08-14)
 
 
