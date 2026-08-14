@@ -26,8 +26,11 @@ P="$("$CANOPY" worktree lease "$ID" 2>/dev/null)"
 [ -d "$P" ] && ok "lease returned a real dir" || bad "lease path not a dir: $P"
 eq "worktree stored on task" "$(jq -r '.worktree' "$R/.canopy/tasks/$ID.json")" "$P"
 BR="$(jq -r '.branch' "$R/.canopy/tasks/$ID.json")"
-eq "branch is rhyu/<id>-<slug>" "$BR" "rhyu/t1-expose-postgres-port"
+# Neutral prefix: this used to be a hardcoded `rhyu/`, stamping the maintainer's
+# handle onto every branch in every user's repo (and this test pinned it there).
+eq "branch is canopy/<id>-<slug>" "$BR" "canopy/t1-expose-postgres-port"
 eq "worktree is on that branch" "$(git -C "$P" branch --show-current)" "$BR"
+case "$BR" in rhyu/*) bad "branch still carries the maintainer's handle" ;; *) ok "branch carries no personal handle" ;; esac
 
 # it must be a treehouse worktree, NOT a .claude/worktrees one (ground rule)
 case "$P" in *".treehouse/"*) ok "lease is under treehouse pool" ;; *) bad "lease not under treehouse: $P" ;; esac
@@ -35,6 +38,13 @@ case "$P" in *".treehouse/"*) ok "lease is under treehouse pool" ;; *) bad "leas
 
 # path helper
 eq "worktree path helper" "$("$CANOPY" worktree path "$ID" 2>/dev/null)" "$P"
+
+# a repo with its own naming convention can override the prefix
+PID="$("$CANOPY" task add "custom prefix" 2>/dev/null)"
+CANOPY_BRANCH_PREFIX=feat "$CANOPY" worktree lease "$PID" >/dev/null 2>&1
+eq "CANOPY_BRANCH_PREFIX overrides the default" \
+   "$(jq -r '.branch' "$R/.canopy/tasks/$PID.json")" "feat/${PID}-custom-prefix"
+"$CANOPY" worktree return "$PID" >/dev/null 2>&1 || true
 
 # return (clean tree -> should succeed)
 if "$CANOPY" worktree return "$ID" >/dev/null 2>&1; then ok "clean worktree returns to pool"; else bad "return failed on clean tree"; fi

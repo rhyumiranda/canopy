@@ -74,7 +74,11 @@ canopy_worktree_lease() {
   local tf title branch path
   tf="$(task_file "$id")"
   title="$(jq -r '.title' "$tf")"
-  branch="rhyu/${id}-$(_slug "$title")"
+  # Neutral default: the prefix used to be a hardcoded `rhyu/`, which stamped the
+  # maintainer's handle onto every branch in every user's repo. Override with
+  # CANOPY_BRANCH_PREFIX for a repo with its own naming convention. Existing tasks
+  # keep the branch recorded in their state, so in-flight work is unaffected.
+  branch="${CANOPY_BRANCH_PREFIX:-canopy}/${id}-$(_slug "$title")"
 
   # Refuse to lease a thin container repo (real project nested in a subdir) —
   # treehouse would hand back a worktree with no source or remote (see t17).
