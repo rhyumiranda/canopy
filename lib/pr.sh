@@ -128,6 +128,14 @@ canopy_pr_open() {
   [ -n "$(jq -r '.why // ""' "$tf")" ] || warn "task $id has no why — PR 'Why' will be blank (canopy task set $id why \"…\")"
 
   base="$(base_branch "$wt")"
+  # Diff scope for the body (`## Files`) must be computed against the CURRENT
+  # remote base tip, NOT the local base ref — a linked worktree's local base
+  # freezes at pool-creation and drifts behind remote merges, so `local..HEAD`
+  # counts every already-merged commit as new and bloats the file list (t3 docs
+  # PR showed 15 files / +805 for a 2-file change). Reuse `_review_base`, which
+  # fetches origin and merge-bases against FETCH_HEAD; fall back to the local
+  # base ref if the fetch/merge-base is unreachable (offline-safe).
+  local diff_base; diff_base="$(_review_base "$wt")"; [ -n "$diff_base" ] || diff_base="$base"
   title="$(git -C "$wt" log -1 --pretty=%s)"
 
   info "pushing $branch"
@@ -139,7 +147,7 @@ canopy_pr_open() {
   push_last="$(printf '%s\n' "$push_out" | sed '/^$/d' | sed -n '$p')"
   [ -n "$push_last" ] && info "$push_last"
 
-  body="$(_pr_body "$id" "$wt" "$base")"
+  body="$(_pr_body "$id" "$wt" "$diff_base")"
 
   # Triage labels: explicit .labels UNION a label derived from the conventional-
   # commit type in the title, so a PR is never unlabeled for triage. Ensure each
