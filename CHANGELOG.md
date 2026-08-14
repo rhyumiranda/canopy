@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/rhyumiranda/canopy/compare/v0.11.0...v0.11.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **orchestrator:** default stable playbook to built-in Agent worker, isolate Herdr as experimental ([#69](https://github.com/rhyumiranda/canopy/issues/69)) ([187d8c7](https://github.com/rhyumiranda/canopy/commit/187d8c7aa67e78757a56e879bd5cb7f13f307174))
+* **pr:** compute PR-body diff scope against fresh remote base ([#67](https://github.com/rhyumiranda/canopy/issues/67)) ([80aa9c1](https://github.com/rhyumiranda/canopy/commit/80aa9c1811f2d011293eae2b26adc1b73bf0d3dc))
+
 ## [0.11.0](https://github.com/rhyumiranda/canopy/compare/v0.10.0...v0.11.0) (2026-08-14)
 
 
