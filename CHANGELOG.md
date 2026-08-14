@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/rhyumiranda/canopy/compare/v0.9.0...v0.10.0) (2026-08-14)
+
+
+### Features
+
+* **cli:** AXI-ergonomic output — TOON board, task show --full, structured usage errors ([#63](https://github.com/rhyumiranda/canopy/issues/63)) ([9b58a86](https://github.com/rhyumiranda/canopy/commit/9b58a868bd9b88c8715b4b3e8e200484f8ffa385))
+
 ## [0.9.0](https://github.com/rhyumiranda/canopy/compare/v0.8.4...v0.9.0) (2026-08-14)
 
 
