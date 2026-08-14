@@ -49,10 +49,28 @@ _assert_not_container() {
     "or set CANOPY_ALLOW_CONTAINER=1 to lease this outer repo anyway.")"
 }
 
+# _assert_deps_merged <id> — the contract-first gate. Refuse to lease a worktree for
+# a task whose depends_on targets haven't landed on the base branch yet, so the two
+# sides of a shared boundary can't be built against a contract that isn't there. The
+# authoritative enforcement (the orchestrator LLM is told to skip such tasks, but a
+# bash gate is what actually guarantees it). No deps → no-op.
+_assert_deps_merged() {
+  local id="$1" tf dep deps unmet=""
+  tf="$(task_file "$id")"
+  deps="$(jq -r '(.depends_on // [])[]' "$tf" 2>/dev/null)" || deps=""
+  [ -n "$deps" ] || return 0
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    _dep_satisfied "$dep" || unmet="$unmet $dep"
+  done <<< "$deps"
+  [ -n "$unmet" ] && die "task $id is blocked: dependency not merged yet —${unmet}. Wait for those PRs to merge (see 'canopy status'), then lease again. (Contract-first: the dependency defines the shared API this task builds against.)"
+  return 0
+}
+
 # canopy worktree lease <id> -> prints leased worktree path
 canopy_worktree_lease() {
   require_canopy; need treehouse; need git
-  local id="${1:?task id}"; _assert_task "$id"
+  local id="${1:?task id}"; _assert_task "$id"; _assert_deps_merged "$id"
   local tf title branch path
   tf="$(task_file "$id")"
   title="$(jq -r '.title' "$tf")"
