@@ -182,16 +182,79 @@ task_add() {
 
   jq --arg id "$id" --arg title "$title" --arg now "$now" '
     .seq += 1 | .updated = $now
-    | .tasks += [{id:$id,title:$title,status:"planning",worktree:null,branch:null,pr:null,agent:null,worker_session:null}]
+    | .tasks += [{id:$id,title:$title,status:"planning",worktree:null,branch:null,pr:null,agent:null,worker_session:null,depends_on:[]}]
   ' "$sf" | write_atomic "$sf"
 
   jq -n --arg id "$id" --arg title "$title" --arg now "$now" '
     {id:$id,title:$title,brief:"",status:"planning",worktree:null,branch:null,pr:null,
-     agent:null,worker_session:null,worker_pid:null,worker_log:null,log:[{t:$now,msg:"created"}]}
+     agent:null,worker_session:null,worker_pid:null,worker_log:null,depends_on:[],log:[{t:$now,msg:"created"}]}
   ' | write_atomic "$(task_file "$id")"
 
   info "added task $id: $title"
   printf '%s\n' "$id"
+}
+
+# _dep_reaches <start> <target> — true if <target> is reachable by walking the
+# depends_on chain out of <start>. Used for cycle detection. Iterative DFS over a
+# whitespace frontier string (bash-3.2 safe, no sparse arrays); `seen` de-dupes and
+# a guard counter backstops any pathological graph.
+_dep_reaches() {
+  local start="$1" target="$2" seen=" " cur nxt tf guard=0
+  local frontier="$start"
+  while [ -n "$frontier" ]; do
+    guard=$((guard+1)); [ "$guard" -le 500 ] || return 1
+    cur="${frontier%% *}"
+    case "$frontier" in *" "*) frontier="${frontier#* }" ;; *) frontier="" ;; esac
+    case "$seen" in *" $cur "*) continue ;; esac
+    seen="$seen$cur "
+    tf="$(task_file "$cur")"; [ -f "$tf" ] || continue
+    while IFS= read -r nxt; do
+      [ -n "$nxt" ] || continue
+      [ "$nxt" != "$target" ] || return 0
+      frontier="$frontier $nxt"
+    done < <(jq -r '(.depends_on // [])[]' "$tf" 2>/dev/null)
+  done
+  return 1
+}
+
+# _dep_satisfied <dep-id> — has this dependency landed on the base branch yet?
+# Satisfied when the dep's own status is merged/done (the watcher flips it there),
+# OR — to catch a merge the in-session watcher hasn't reconciled yet — when its PR
+# reads merged live. A missing dep or a dep with no PR is NOT satisfied (defensive).
+_dep_satisfied() {
+  local dep="$1" tf st pr
+  tf="$(task_file "$dep")"; [ -f "$tf" ] || return 1
+  st="$(jq -r '.status // empty' "$tf" 2>/dev/null)" || st=""
+  case "$st" in merged|done) return 0 ;; esac
+  pr="$(jq -r '.pr // empty' "$tf" 2>/dev/null)" || pr=""
+  [ -n "$pr" ] || return 1
+  _pr_is_merged "$pr"
+}
+
+# _task_set_deps <id> <dep-ids> — set task <id>'s depends_on to <dep-ids> (a space-
+# or comma-separated list; empty string clears it). Each dep must exist, cannot be
+# the task itself, and cannot already depend on the task (cycle). Stored as a JSON
+# array in both the detail file and the board (so `canopy status` can show it).
+_task_set_deps() {
+  need jq
+  local id="$1" raw="$2" sf tf now dep arr
+  sf="$(state_file)"; tf="$(task_file "$id")"; now="$(_c_ts)"
+  local deps=() tok
+  for tok in $(printf '%s' "$raw" | tr ',' ' '); do deps+=("$tok"); done
+  for dep in ${deps[@]+"${deps[@]}"}; do
+    [ "$dep" != "$id" ] || die "depends_on: task $id cannot depend on itself"
+    [ -f "$(task_file "$dep")" ] || die "depends_on: no such task: $dep"
+    if _dep_reaches "$dep" "$id"; then die "depends_on: cycle — $dep already depends on $id"; fi
+  done
+  if [ "${#deps[@]}" -eq 0 ]; then arr='[]'
+  else arr="$(printf '%s\n' "${deps[@]}" | jq -R . | jq -sc 'unique_by(.)')"; fi
+  jq --argjson d "$arr" --arg now "$now" \
+     '.depends_on=$d | .log += [{t:$now,msg:("set depends_on=["+($d|join(" "))+"]")}]' \
+     "$tf" | write_atomic "$tf"
+  jq --arg id "$id" --argjson d "$arr" --arg now "$now" \
+     '.updated=$now | .tasks |= map(if .id==$id then .depends_on=$d else . end)' \
+     "$sf" | write_atomic "$sf"
+  info "task $id: depends_on=$(printf '%s' "$arr" | jq -r 'join(" ")')"
 }
 
 # task_set <id> <key> <value>
@@ -201,6 +264,9 @@ task_set() {
   local id="${1:?task id}" key="${2:?key}" val="${3}" sf tf now
   _assert_task "$id"
   sf="$(state_file)"; tf="$(task_file "$id")"; now="$(_c_ts)"
+
+  # depends_on is a validated array, not a free-form string — handle it separately.
+  if [ "$key" = "depends_on" ]; then _task_set_deps "$id" "$val"; return; fi
 
   case "$key" in
     title|status|worktree|branch|pr|worker_session|agent)
@@ -271,7 +337,7 @@ _state_board_one() {
   local prefix="${1:-}" sf; sf="$(state_file)"
   info "mode: $(jq -r '.mode' "$sf")"
   if [ "$(jq '.tasks|length' "$sf")" -eq 0 ]; then log "(no tasks)"; return 0; fi
-  jq -r --arg p "$prefix" '.tasks[] | "  \($p)\(.id)\t\(.status)\t\(.title)" + (if .pr then "  (PR #\(.pr))" else "" end)' "$sf" >&2
+  jq -r --arg p "$prefix" '.tasks[] | "  \($p)\(.id)\t\(.status)\t\(.title)" + (if .pr then "  (PR #\(.pr))" else "" end) + (if ((.depends_on // []) | length) > 0 then "  ⟂ after \($p)\((.depends_on)|join(", \($p)"))" else "" end)' "$sf" >&2
 }
 
 # canopy status --all — every registered project's board, ids namespaced <name>:tN.
