@@ -504,10 +504,11 @@ grep -q -- "agent start cp-fix-herdr-$IDN2 " "$WORK/herdr.log" && [ "$IDN1" != "
 IDIDLE="$(eval "$ENV \"$CANOPY\" task add 'idle reporting' 2>/dev/null")"
 eval "$ENV \"$CANOPY\" task set $IDIDLE worktree $R >/dev/null 2>&1"
 eval "$ENV HERDR_TAB_N=1 \"$CANOPY\" worker start --agent claude --workspace ws-existing $IDIDLE >/dev/null 2>&1"
-# the launch keeps the t21 worker-role prefix AND wires a Stop hook via --settings,
-# together on one line, pointing at a per-worker settings file (regression guard)
-grep -q -- "agent start .* -- env CANOPY_ROLE=worker claude --dangerously-skip-permissions --settings .*worker-settings/$IDIDLE.json" "$WORK/herdr.log" \
-  && ok 'Claude launch keeps env CANOPY_ROLE=worker AND seeds --settings Stop hook' || bad 'Claude launch dropped worker-role env or --settings Stop hook'
+# the launch keeps the t21 worker-role prefix, pins the worker model (Opus 4.8),
+# AND wires a Stop hook via --settings — all on one line, pointing at a per-worker
+# settings file (regression guard covering the role env, the model pin, and the hook)
+grep -q -- "agent start .* -- env CANOPY_ROLE=worker claude --dangerously-skip-permissions --model claude-opus-4-8 --settings .*worker-settings/$IDIDLE.json" "$WORK/herdr.log" \
+  && ok 'Claude launch keeps env CANOPY_ROLE=worker, pins --model opus, AND seeds --settings Stop hook' || bad 'Claude launch dropped worker-role env, model pin, or --settings Stop hook'
 SETF="$R/.canopy/worker-settings/$IDIDLE.json"
 { [ -f "$SETF" ] && jq -e '.hooks.Stop[0].hooks[0].command | test("worker idle .'"$IDIDLE"'")' "$SETF" >/dev/null 2>&1; } \
   && ok 'seeded Stop hook runs `canopy worker idle <id>`' || bad 'seeded Stop hook does not call worker idle'
