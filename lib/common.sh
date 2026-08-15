@@ -88,6 +88,10 @@ require_canopy() {
 _worker_cmd_allowed() {
   case "$1" in
     checks|status|events|scribe|version|-v|--version|help|-h|--help|"") return 0 ;;
+    # oracle/plan-gate are read-only advisory consults (they launch a read-only
+    # claude and mutate no .canopy state) — a detached worker must be able to
+    # reach a consultant mid-task, so allow them under CANOPY_ROLE=worker.
+    oracle|plan-gate) return 0 ;;
     task) case "$2" in checkpoint|show) return 0 ;; *) return 1 ;; esac ;;
     *) return 1 ;;
   esac
@@ -100,7 +104,7 @@ canopy_role_guard() {
   [ "${CANOPY_ROLE:-}" = worker ] || return 0
   local cmd="${1:-}" sub="${2:-}"
   _worker_cmd_allowed "$cmd" "$sub" && return 0
-  die "canopy '${cmd}${sub:+ $sub}' is orchestrator-only and refused under CANOPY_ROLE=worker: a worker shares the orchestrator's .canopy state via git-common-dir and must not mutate its board or tasks. A worker may run: checks, task checkpoint, task show, status, events, scribe, version."
+  die "canopy '${cmd}${sub:+ $sub}' is orchestrator-only and refused under CANOPY_ROLE=worker: a worker shares the orchestrator's .canopy state via git-common-dir and must not mutate its board or tasks. A worker may run: checks, task checkpoint, task show, status, events, scribe, version, oracle, plan-gate."
 }
 
 # --- atomic write: write_atomic <path> < content-on-stdin ---
