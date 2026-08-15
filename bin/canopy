@@ -33,6 +33,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/checks.sh"
 # shellcheck source=../lib/review.sh
 . "$CANOPY_ROOT/lib/review.sh"
+# shellcheck source=../lib/consult.sh
+. "$CANOPY_ROOT/lib/consult.sh"
 # shellcheck source=../lib/pr.sh
 . "$CANOPY_ROOT/lib/pr.sh"
 # shellcheck source=../lib/watch.sh
@@ -69,6 +71,8 @@ commands:
   scribe add <fact>    Append a durable, project-intrinsic fact
   scribe replace <n> <fact>  Rewrite entry n in place
   scribe rm <n>        Delete a stale entry
+  oracle [-C <wt>] <q> Ask the read-only advisory oracle one mid-task question (prose)
+  plan-gate <id>       Gate the plan at .canopy/plans/<id>.md (structured verdict JSON)
   mode [yolo|guided]   Get or set this repo's mode (--global: read the orchestrator home's session mode)
   base [branch]        Get or set the integration branch (worktrees cut from it; PRs target it)
   project ls           List registered projects (git repos under projects/) with in-flight counts
@@ -130,6 +134,8 @@ case "$cmd" in
       *)         usage_error "unknown 'project' subcommand: ${sub:-<none>}" "valid: ls, path" ;;
     esac ;;
   review)        canopy_review "$@" ;;
+  oracle)        canopy_oracle "$@" ;;
+  plan-gate)     canopy_plan_gate "$@" ;;
   pr)
     sub="${1:-}"; shift || true
     case "$sub" in
