@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/rhyumiranda/canopy/compare/v0.11.4...v0.12.0) (2026-08-15)
+
+
+### Features
+
+* **cli:** add worker-callable oracle + plan-gate launch path ([#78](https://github.com/rhyumiranda/canopy/issues/78)) ([9fcc403](https://github.com/rhyumiranda/canopy/commit/9fcc4037c35794d5ff1bd4bb36a2b2264c796601))
+
 ## [0.11.4](https://github.com/rhyumiranda/canopy/compare/v0.11.3...v0.11.4) (2026-08-15)
 
 
