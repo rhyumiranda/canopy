@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.4](https://github.com/rhyumiranda/canopy/compare/v0.11.3...v0.11.4) (2026-08-15)
+
+
+### Bug Fixes
+
+* **reviewer:** verify 'missing symbol' against the whole worktree, not the diff ([#76](https://github.com/rhyumiranda/canopy/issues/76)) ([1d92720](https://github.com/rhyumiranda/canopy/commit/1d927204fb55e59e7267c2b32d10bffc78db4111))
+
 ## [0.11.3](https://github.com/rhyumiranda/canopy/compare/v0.11.2...v0.11.3) (2026-08-14)
 
 
