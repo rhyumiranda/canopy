@@ -191,16 +191,81 @@ _review_once_codex() {
   rm -f "$schema" "$msgf"
 }
 
-# canopy review <id>  -> prints verdict JSON; exit 0 if clean, 1 if issues
+# _agent_frontmatter_model <agent-name> -> the `model:` value from its frontmatter (empty if none)
+# _agent_body strips frontmatter, so a CLI launch of the agent must re-read the pinned
+# model and pass it as an explicit --model. grep+sed (not awk) for mawk/CI parity, and
+# `^model:` anchors on the frontmatter line — the body never starts a line with `model:`.
+_agent_frontmatter_model() {
+  local name="$1" m
+  m="$(grep -m1 '^model:' "$CANOPY_ROOT/agents/$name.md" 2>/dev/null | sed 's/^model:[[:space:]]*//')" || m=""
+  printf '%s\n' "$m"
+}
+
+# _review_edge_claude <worktree> [intent] [prov] -> edge-reviewer verdict JSON on stdout
+# A SECOND, independent adversarial pass (agents/reviewer-edge.md) over the same
+# base..head diff, same read-only tools as the main reviewer. Its pinned model lives
+# in frontmatter, which _agent_body strips, so re-read and pass it explicitly.
+# Fail-safe: on any launch/parse failure it yields empty output — the caller warns and
+# falls back to the main verdict rather than aborting.
+_review_edge_claude() {
+  local wt="$1" intent="${2:-}" prov="${3:-}" base head diff out model
+  base="$(_review_base "$wt")"
+  head="$(git -C "$wt" rev-parse HEAD)"
+  if [ -z "$base" ] || [ "$base" = "$head" ]; then
+    echo '{"verdict":"clean","risk_level":"low","issues":[],"docs_in_sync":true,"summary":"no diff to review"}'; return
+  fi
+  diff="$(git -C "$wt" diff "$base..$head")"
+  [ -n "$diff" ] || { echo '{"verdict":"clean","risk_level":"low","issues":[],"docs_in_sync":true,"summary":"empty diff"}'; return; }
+  model="$(_agent_frontmatter_model reviewer-edge)"
+  [ -n "$model" ] || model="$REVIEWER_MODEL"
+  out="$( cd "$wt" && claude -p --model "$model" \
+            --allowedTools Read Grep Glob \
+            --append-system-prompt "$(_agent_body reviewer-edge)" \
+            "$(_review_prompt "$base" "$head" "$intent" "$prov" "$diff")" 2>/dev/null )" || out=""
+  printf '%s' "$out" | _extract_json
+}
+
+# _merge_verdicts <main-json> <edge-json> -> ONE merged verdict JSON
+# Union the two issues arrays (deduped by where+problem), take the HIGHER risk_level,
+# and set verdict=issues if EITHER pass found issues else clean. So neither a single
+# hallucinating reviewer nor a single blind spot can alone sink or pass a diff.
+_merge_verdicts() {
+  local main="$1" edge="$2"
+  jq -cn --argjson a "$main" --argjson b "$edge" '
+    def rank(r): {"low":0,"med":1,"high":2}[r] // 0;
+    (($a.issues // []) + ($b.issues // [])
+      | unique_by([(.where // ""), (.problem // "")])) as $issues
+    | (if rank($a.risk_level) >= rank($b.risk_level)
+         then ($a.risk_level // "low") else ($b.risk_level // "low") end) as $risk
+    | {
+        verdict: (if ($a.verdict == "issues") or ($b.verdict == "issues") then "issues" else "clean" end),
+        risk_level: $risk,
+        risk_rationale: (($a.risk_rationale // "")
+                          + (if ($b.risk_rationale // "") != "" then " | edge: " + $b.risk_rationale else "" end)),
+        issues: $issues,
+        docs_in_sync: (($a.docs_in_sync != false) and ($b.docs_in_sync != false)),
+        summary: (($a.summary // "") + " | edge: " + ($b.summary // ""))
+      }
+  '
+}
+
+# canopy review <id> [--edge]  -> prints verdict JSON; exit 0 if clean, 1 if issues
 canopy_review() {
   require_canopy; need jq
   local agent="" id tf wt v verdict risk intent prov brief why prev head
+  local edge_flag=0 no_edge=0 run_edge=0 ev merged
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --agent) shift; agent="$(_canopy_agent_validate "${1:-}")" ;;
+      --edge)    edge_flag=1 ;;
+      --no-edge) no_edge=1 ;;
       -h|--help)
         cat <<'EOF'
-usage: canopy review [--agent claude|codex] <id>
+usage: canopy review [--agent claude|codex] [--edge|--no-edge] <id>
+  --edge     also run the adversarial reviewer-edge pass and MERGE its verdict
+             (union of issues, higher of the two risk levels).
+  --no-edge  never run the edge pass, even when main risk_level is high
+             (by default a high-risk main verdict auto-triggers the edge pass).
 EOF
         return 0 ;;
       *) id="${1}"; break ;;
@@ -208,7 +273,7 @@ EOF
     shift
   done
   id="${id:-${1:-}}"
-  [ -n "$id" ] || die "usage: canopy review [--agent claude|codex] <id>"
+  [ -n "$id" ] || die "usage: canopy review [--agent claude|codex] [--edge|--no-edge] <id>"
   _assert_task "$id"
   tf="$(task_file "$id")"
   wt="$(jq -r '.worktree // empty' "$tf")"
@@ -232,8 +297,32 @@ EOF
   esac
   [ -n "$v" ] || die "reviewer returned nothing parseable"
   printf '%s' "$v" | jq -e '.verdict' >/dev/null 2>&1 || die "reviewer verdict not valid JSON: $v"
-
   task_log "$id" "review($agent): $(printf '%s' "$v" | jq -rc '{verdict,risk_level,docs_in_sync,summary}')"
+
+  # Adversarial second pass: run explicitly on --edge, and defense-in-depth AUTO on a
+  # high-risk main verdict — unless --no-edge disabled it. Merge the two verdicts
+  # (union of issues, higher risk wins). Fail-safe: an unparseable/failed edge pass
+  # warns and keeps the main verdict; it must NEVER abort the review.
+  risk="$(printf '%s' "$v" | jq -r '.risk_level // "unknown"')"
+  if [ "$no_edge" != 1 ]; then
+    [ "$edge_flag" = 1 ] && run_edge=1
+    [ "$risk" = "high" ] && run_edge=1
+  fi
+  if [ "$run_edge" = 1 ]; then
+    ev="$(_review_edge_claude "$wt" "$intent" "$prov")" || ev=""
+    if [ -n "$ev" ] && printf '%s' "$ev" | jq -e '.verdict' >/dev/null 2>&1; then
+      merged="$(_merge_verdicts "$v" "$ev")" || merged=""
+      if [ -n "$merged" ] && printf '%s' "$merged" | jq -e '.verdict' >/dev/null 2>&1; then
+        v="$merged"
+        task_log "$id" "review-edge: merged adversarial pass -> $(printf '%s' "$v" | jq -rc '{verdict,risk_level}')"
+      else
+        warn "review: edge-pass merge failed — falling back to the main reviewer verdict"
+      fi
+    else
+      warn "review: edge pass returned nothing parseable — falling back to the main reviewer verdict"
+    fi
+  fi
+
   verdict="$(printf '%s' "$v" | jq -r '.verdict')"
   risk="$(printf '%s' "$v" | jq -r '.risk_level // "unknown"')"
   head="$(git -C "$wt" rev-parse HEAD 2>/dev/null)"

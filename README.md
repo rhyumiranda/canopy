@@ -122,6 +122,8 @@ canopy events consume                  # one pending terminal worker/PR event, t
 canopy events wait 30                  # bounded one-shot wait; not a supervisor loop
 canopy review "$id"                    # one independent diff review (follows orchestrator; Claude standalone default)
 canopy review --agent codex "$id"      # same gate, but with a fresh read-only Codex reviewer
+canopy review --edge "$id"             # + an adversarial reviewer-edge pass, verdicts MERGED (union of issues, higher risk wins)
+                                       # (auto-runs on a high-risk main verdict too; --no-edge disables that. Edge failure falls back to the main verdict.)
 canopy pr open "$id"                   # gh-axi PR — refuses unless review is clean + checks pass
 canopy status                          # the board
 ```
