@@ -100,6 +100,23 @@ Install does **not** mutate your dev checkout. It clones a managed source under 
 - `canopy setup --link` — wire the Claude/Codex defs only (no CLI snapshot, no PATH symlink). Any install that ships the CLI but not the defs auto-runs this on the first real command (once, idempotently); opt out with `--no-autolink` or `CANOPY_NO_AUTOLINK=1`.
 - `canopy setup --unlink` — remove **only** canopy's own installed defs (by the filenames canopy ships) and the Codex package/skills. Your own agents/commands and your `~/.claude/settings.json` are left untouched.
 
+**Update & uninstall:**
+
+*Homebrew install* (`brew install rhyumiranda/tap/canopy`):
+```bash
+brew upgrade canopy                    # update the CLI (canopy upgrade just points you here)
+brew uninstall canopy                  # remove the CLI
+canopy setup --unlink                  # remove the wired ~/.claude / ~/.codex defs (run before uninstall)
+```
+`~/.local/share/canopy` is **not** used by a Homebrew install (brew owns the CLI under its Cellar), so there is nothing to remove there.
+
+*Clone install* (`./bin/canopy setup`):
+```bash
+canopy setup --unlink                  # remove the wired ~/.claude / ~/.codex defs
+rm "$HOME/.local/bin/canopy"           # remove the PATH symlink
+rm -rf "$HOME/.local/share/canopy"     # remove the managed CLI snapshot + source clone
+```
+
 **Per project:**
 ```bash
 cd your-repo && canopy init            # creates .canopy/, ensures treehouse

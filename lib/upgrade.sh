@@ -8,6 +8,12 @@
 # works the same whether run via the PATH symlink or from the checkout.
 
 canopy_upgrade() {
+  # Homebrew-managed installs have no .source git checkout to refresh — brew owns
+  # the CLI snapshot. Instruct the brew flow instead of dying on the missing record.
+  if is_brew_install; then
+    info "canopy is Homebrew-managed; update with: brew upgrade canopy"
+    return 0
+  fi
   need git
   need jq
   local app="$HOME/.local/share/canopy" src before after channel upstream ref
