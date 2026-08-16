@@ -81,7 +81,14 @@ Not built for: hosted multi-tenant use, or replacing CI (Canopy *uses* your CI a
 brew install rhyumiranda/tap/canopy    # installs the CLI only
 canopy doctor                          # checks prereqs (claude, treehouse, gh-axi) + versions
 ```
-The three prereqs above aren't on Homebrew — install them separately (see **Prereqs**). The Claude/Codex agent defs wire automatically on first run. On macOS, `canopy watch install` sets up the merge-watcher (optional). No Homebrew? See the from-source path below (a `curl` one-liner is also planned — see `canopy doctor`).
+The three prereqs above aren't on Homebrew — install them separately (see **Prereqs**). The Claude/Codex agent defs wire automatically on first run. On macOS, `canopy watch install` sets up the merge-watcher (optional).
+
+**No Homebrew? (Linux / CI / one-liner):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/rhyumiranda/canopy/main/install.sh | sh
+canopy doctor                          # checks prereqs + PATH
+```
+This clones a managed Canopy checkout under `~/.local/share/canopy/source` and runs the standard `canopy setup` from it (CLI snapshot + PATH symlink + Claude/Codex def wiring) — identical to the from-source flow below. It's idempotent: re-run it any time to update. If `~/.local/bin` isn't on your `PATH` yet, it prints the `export PATH=…` line to add. Pin a channel or ref with `CANOPY_CHANNEL=codex-preview` / `CANOPY_REF=<branch>` (defaults: `stable` / `main`).
 
 **Install from source (contributors):**
 ```bash
