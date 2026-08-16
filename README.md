@@ -95,6 +95,11 @@ canopy watch install                   # optional (macOS): on merge, marks tasks
 
 Install does **not** mutate your dev checkout. It clones a managed source under `~/.local/share/canopy/source`, checks out the branch for the chosen channel there, and installs from that managed clone. The installed `canopy` is decoupled from your dev checkout, so switching branches in the repo won't break it. **To update, just run `canopy upgrade` from anywhere** — it refreshes the recorded channel branch and reinstalls the same channel.
 
+`setup` does two things: it builds the CLI snapshot **and** wires the Claude/Codex defs into `~/.claude` / `~/.codex`. You rarely touch these separately, but they're exposed for installs that can't write `~/.claude` at install time (e.g. a package manager):
+
+- `canopy setup --link` — wire the Claude/Codex defs only (no CLI snapshot, no PATH symlink). Any install that ships the CLI but not the defs auto-runs this on the first real command (once, idempotently); opt out with `--no-autolink` or `CANOPY_NO_AUTOLINK=1`.
+- `canopy setup --unlink` — remove **only** canopy's own installed defs (by the filenames canopy ships) and the Codex package/skills. Your own agents/commands and your `~/.claude/settings.json` are left untouched.
+
 **Per project:**
 ```bash
 cd your-repo && canopy init            # creates .canopy/, ensures treehouse
