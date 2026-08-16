@@ -43,6 +43,8 @@ export CANOPY_ROOT
 . "$CANOPY_ROOT/lib/scribe.sh"
 # shellcheck source=../lib/setup.sh
 . "$CANOPY_ROOT/lib/setup.sh"
+# shellcheck source=../lib/doctor.sh
+. "$CANOPY_ROOT/lib/doctor.sh"
 # shellcheck source=../lib/upgrade.sh
 . "$CANOPY_ROOT/lib/upgrade.sh"
 # shellcheck source=../lib/recover.sh
@@ -79,6 +81,7 @@ commands:
   project path <name>  Resolve a project name to its absolute path (exact, else unique substring)
   recover --all        Recover across every registered project (re-arm, reconcile, report)
   watch ensure --all   Arm a merge-watcher for each project that has pr-open tasks
+  doctor               Check prereqs, PATH, wiring, and install method (read-only)
   upgrade              Pull latest + reinstall the CLI (from any directory)
   version              Print version
 
@@ -177,6 +180,7 @@ case "$cmd" in
       *)         usage_error "unknown 'scribe' subcommand: ${sub:-<none>}" "valid: add, list, replace, rm, show" ;;
     esac ;;
   setup)         canopy_setup "$@" ;;
+  doctor)        canopy_doctor "$@" ;;
   upgrade)       canopy_upgrade "$@" ;;
   mode)          state_mode "$@" ;;
   version|-v|--version) echo "canopy ${CANOPY_VERSION}" ;;

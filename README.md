@@ -146,7 +146,9 @@ canopy status                          # the board
 
 Resuming after a `/clear`? `canopy recover` first consumes durable terminal events from `.canopy/events/lifecycle.json`, then re-spawns in-flight workers from their last checkpoint — continue, don't restart. The durable lifecycle event is the reliable signal for the next `canopy recover` or `canopy events consume`. (On the `herdr-preview` channel, recover instead re-attaches the live pane — see that channel's docs.)
 
-Full CLI: `init · start · status · task · events · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · upgrade`.
+Full CLI: `init · start · status · task · events · mode · base · worktree · worker · checks · review · pr · watch · scribe · recover · setup · doctor · upgrade`.
+
+Run `canopy doctor` any time to health-check the install: it verifies the prereqs (`git`, `jq`, `claude` ≥2.1 are required; `treehouse`, `gh-axi` optional), that the install's bin dir is on your `PATH`, that the Claude/Codex defs are wired and current, and which update path your install uses (`brew upgrade canopy` for a Homebrew install, `canopy upgrade` for a clone). It prints the exact fix for every red line and is fully read-only. It exits non-zero only if a required prereq is missing.
 
 **Integrating on a non-default branch?** If your repo merges into `develop` (not `main`), set it once — `canopy base develop` (or `canopy init --base develop`). Every worktree is then cut from a *fresh* copy of that branch, every PR targets it, and every review diffs against it (so the gate sees only your change, not commits already merged into the base), so work never anchors to a stale `main`. `canopy base` prints the current one.
 
