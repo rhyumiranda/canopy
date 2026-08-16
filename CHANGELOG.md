@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/rhyumiranda/canopy/compare/v0.14.0...v0.15.0) (2026-08-16)
+
+
+### Features
+
+* **dist:** curl one-liner install.sh for non-Homebrew installs ([87e49d6](https://github.com/rhyumiranda/canopy/commit/87e49d67543863a8f4b4f4a1eb6d86b2d04e3811))
+
 ## [0.14.0](https://github.com/rhyumiranda/canopy/compare/v0.13.0...v0.14.0) (2026-08-16)
 
 
