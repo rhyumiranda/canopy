@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/rhyumiranda/canopy/compare/v0.13.0...v0.14.0) (2026-08-16)
+
+
+### Features
+
+* **cli:** add canopy doctor install/prereq health check ([8ad7264](https://github.com/rhyumiranda/canopy/commit/8ad726488049c43c653fe344f008503e273875e4))
+* **dist:** add Homebrew formula + tap release workflow docs ([20bc319](https://github.com/rhyumiranda/canopy/commit/20bc3190fce35213df475d4e3c8e378ffd5d55b6))
+* **upgrade:** make canopy upgrade brew-aware ([dab800a](https://github.com/rhyumiranda/canopy/commit/dab800a7c9c55051b12a0c275ffdf9d21b6934fc))
+
+
+### Bug Fixes
+
+* **dist:** ship def sources (commands, hooks, skills, dist) in Homebrew formula for first-run auto-wire ([21604b9](https://github.com/rhyumiranda/canopy/commit/21604b9b6d99217e47383d8a84291491a742ecf2))
+
 ## [0.13.0](https://github.com/rhyumiranda/canopy/compare/v0.12.0...v0.13.0) (2026-08-16)
 
 
