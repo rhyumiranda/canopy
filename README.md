@@ -76,7 +76,14 @@ Not built for: hosted multi-tenant use, or replacing CI (Canopy *uses* your CI a
 
 **Prereqs:** [`git`](https://git-scm.com) · [`jq`](https://jqlang.github.io/jq/) · [Claude Code](https://code.claude.com/docs) (`claude`, v2.1+) · [`treehouse`](https://github.com/kunchenguid/treehouse) (worktree pool) · `gh-axi` (agent-ergonomic GitHub CLI wrapper — a companion "axi" tool; install it before running Canopy).
 
-**Install once:**
+**Install once (Homebrew):**
+```bash
+brew install rhyumiranda/tap/canopy    # installs the CLI only
+canopy doctor                          # checks prereqs (claude, treehouse, gh-axi) + versions
+```
+The three prereqs above aren't on Homebrew — install them separately (see **Prereqs**). The Claude/Codex agent defs wire automatically on first run. On macOS, `canopy watch install` sets up the merge-watcher (optional). No Homebrew? See the from-source path below (a `curl` one-liner is also planned — see `canopy doctor`).
+
+**Install from source (contributors):**
 ```bash
 git clone https://github.com/rhyumiranda/canopy.git && cd canopy
 ./bin/canopy setup                     # agents/commands/hooks -> ~/.claude; a CLI snapshot -> ~/.local/share/canopy; canopy -> PATH
