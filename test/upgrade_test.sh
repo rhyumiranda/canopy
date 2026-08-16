@@ -76,6 +76,28 @@ if ( cd "$WORK" && HOME="$H" "$H/.local/bin/canopy" upgrade >/dev/null 2>&1 ); t
   bad "upgrade should refuse when the source has uncommitted changes"
 else ok "upgrade refuses on a dirty source checkout"; fi
 
+# --- brew-managed install: upgrade instructs `brew upgrade`, never touches .source ---
+# Drive is_brew_install by (1) a fake `brew` on PATH that reports a prefix and
+# (2) running a canopy checkout that physically lives under <prefix>/Cellar/... —
+# mirrors test/link_test.sh's is_brew_install harness.
+# Use the PHYSICAL path (bin/canopy resolves CANOPY_ROOT via `cd -P`, and macOS
+# maps /var -> /private/var) so is_brew_install's Cellar prefix match lands.
+WORKP="$(cd "$WORK" && pwd -P)"
+BSTUB="$WORKP/brewbin"; mkdir -p "$BSTUB"
+cat > "$BSTUB/brew" <<EOF
+#!/usr/bin/env bash
+[ "\$1" = "--prefix" ] && echo "$WORKP/brewprefix"
+exit 0
+EOF
+chmod +x "$BSTUB/brew"
+CELLAR="$WORKP/brewprefix/Cellar/canopy/8.8.8/libexec"; mkdir -p "$CELLAR"
+tar -C "$CANOPY_ROOT" --exclude .git -cf - bin lib agents | tar -C "$CELLAR" -xf -
+HB="$WORK/h-brew"; mkdir -p "$HB"
+BOUT="$(cd "$WORK" && PATH="$BSTUB:$PATH" HOME="$HB" CANOPY_NO_AUTOLINK=1 "$CELLAR/bin/canopy" upgrade 2>&1)"; BRC=$?
+[ "$BRC" -eq 0 ] && ok "brew-managed upgrade exits 0" || bad "brew upgrade exit $BRC"
+printf '%s' "$BOUT" | grep -qi 'brew upgrade canopy' && ok "brew-managed upgrade instructs 'brew upgrade canopy'" || bad "missing brew instruction: $BOUT"
+[ ! -e "$HB/.local/share/canopy/.source" ] && ok "brew-managed upgrade never writes a .source record" || bad "brew upgrade touched .source"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
