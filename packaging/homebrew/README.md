@@ -16,21 +16,28 @@ Build-from-source with **no compile step** — Canopy is pure bash. `install`
 stages the CLI under `libexec` and puts `canopy` on `PATH` via a symlink:
 
 ```ruby
-libexec.install "bin", "lib", "agents"
+libexec.install "bin", "lib", "agents", "commands", "hooks", "skills", "dist"
 bin.install_symlink libexec/"bin/canopy"
 ```
 
 `bin/canopy` follows a `readlink` chain to locate its own `lib/` (it is designed
 to run through a PATH symlink). Through the brew symlink the chain resolves to
 `libexec/bin/canopy`, and `CANOPY_ROOT` climbs one dir to `libexec`, where
-`lib/` and `agents/` sit next to `bin/` — so `lib/` loads correctly. The
+`lib/` and the def sources sit next to `bin/` — so `lib/` loads correctly. The
 existing `test/bin_symlink_test.sh` covers this chained-symlink resolution.
 
-The formula installs the **CLI only**. The Claude/Codex agent defs (the
-`~/.claude` + `~/.codex` wiring) are **not** written by the formula — brew must
-not write to `$HOME`. They wire automatically on the first `canopy` run
-(idempotent). The prereqs `claude` (v2.1+), `treehouse`, and `gh-axi` are not on
-Homebrew; they are listed in `caveats` and checked by `canopy doctor`.
+`commands`, `hooks`, `skills`, and `dist` (alongside `agents`) are **required**,
+not optional: first-run auto-wire and `canopy setup --link` copy the
+Claude/Codex defs from `$CANOPY_ROOT` — which on a brew install is the Cellar
+`libexec`. Drop any of them and auto-wire finds nothing to copy and silently
+wires zero defs.
+
+The formula installs the **CLI + its def sources**, but does **not** write the
+Claude/Codex wiring itself (the `~/.claude` + `~/.codex` copies) — brew must not
+write to `$HOME`. That wiring happens on the first `canopy` run (idempotent),
+copying from the staged sources above. The prereqs `claude` (v2.1+),
+`treehouse`, and `gh-axi` are not on Homebrew; they are listed in `caveats` and
+checked by `canopy doctor`.
 
 ## Publishing a release (manual, run by the maintainer)
 

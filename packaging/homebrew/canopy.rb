@@ -22,10 +22,15 @@ class Canopy < Formula
     # Stage the whole CLI under libexec, then put `canopy` on PATH via a symlink.
     # bin/canopy follows its readlink chain to find lib/: the PATH symlink ->
     # libexec/bin/canopy resolves to the real file, and CANOPY_ROOT climbs one
-    # dir to libexec, where lib/ and agents/ sit alongside bin/. So lib/ loads
-    # correctly through the brew symlink (test/bin_symlink_test.sh covers the
-    # chained-symlink resolution).
-    libexec.install "bin", "lib", "agents"
+    # dir to libexec, where lib/ and the def sources sit alongside bin/. So lib/
+    # loads correctly through the brew symlink (test/bin_symlink_test.sh covers
+    # the chained-symlink resolution).
+    #
+    # commands, hooks, skills, and dist are REQUIRED: first-run auto-wire and
+    # `canopy setup --link` copy the Claude/Codex defs from $CANOPY_ROOT (here
+    # the Cellar libexec). Omit them and auto-wire finds nothing and silently
+    # wires zero defs.
+    libexec.install "bin", "lib", "agents", "commands", "hooks", "skills", "dist"
     bin.install_symlink libexec/"bin/canopy"
   end
 
@@ -40,7 +45,9 @@ class Canopy < Formula
         - gh-axi (GitHub CLI wrapper)
       Run `canopy doctor` to check every prereq and its version.
 
-      Claude/Codex agent defs wire automatically on first run (idempotent).
+      Claude/Codex agent defs wire automatically on first run (idempotent) —
+      the formula ships the def sources (commands, hooks, skills, dist) so the
+      first `canopy` run can copy them into ~/.claude and ~/.codex.
 
       macOS merge-watcher (optional): canopy watch install
     EOS
