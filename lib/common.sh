@@ -14,6 +14,27 @@ die()  { printf '\033[31m[canopy] error:\033[0m %s\n' "$*" >&2; exit 1; }
 # --- dependency guard ---
 need() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
+# --- install-method detection (path-based, no marker file) ------------------
+# is_brew_install — true (0) if the running canopy lives under Homebrew's Cellar.
+# Consumed by `canopy upgrade` (brew-managed → instruct `brew upgrade`, don't die on
+# the missing .source checkout), `canopy setup --unlink`, and `canopy doctor`.
+# Path-based on purpose (survives brew relocations / Intel vs Apple-Silicon prefix
+# differences): compare the resolved install root (CANOPY_ROOT, exported by
+# bin/canopy after following its symlink chain) against `$(brew --prefix)/Cellar`.
+# Offline/brew-absent safe — no `brew` on PATH → not a brew install.
+is_brew_install() {
+  command -v brew >/dev/null 2>&1 || return 1
+  local prefix root
+  prefix="$(brew --prefix 2>/dev/null)" || prefix=""
+  [ -n "$prefix" ] || return 1
+  root="${CANOPY_ROOT:-}"
+  [ -n "$root" ] || return 1
+  case "$root" in
+    "$prefix"/Cellar/*|"$prefix"/Cellar) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # --- AXI-style structured output (experimental worker CLI) -------------------
 # The Herdr-facing worker commands follow AXI ergonomics (kunchenguid/axi):
 # compact TOON on stdout, explicit empty states, and fail-loud usage errors.

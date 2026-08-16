@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Canopy test suite. Run: bash test/run.sh
 set -uo pipefail
+# These tests run bin/canopy with the REAL $HOME; disable first-run auto-wire so it
+# never writes canopy defs into ~/.claude. Auto-wire is covered by setup_test.sh.
+export CANOPY_NO_AUTOLINK=1
 
 CANOPY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CANOPY="$CANOPY_ROOT/bin/canopy"

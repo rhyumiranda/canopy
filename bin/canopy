@@ -89,6 +89,11 @@ EOF
 cmd="${1:-}"; shift || true
 # Refuse orchestrator-only commands when running as a worker (shared .canopy).
 canopy_role_guard "$cmd" "${1:-}"
+# First-run auto-wire: a Homebrew install can't write ~/.claude at install time, so
+# the first real command lazily wires the Claude/Codex defs when the marker is
+# missing/stale. Idempotent, race-safe (mkdir-lock), and skipped for meta commands,
+# detached workers, and opt-outs — see lib/setup.sh:_canopy_maybe_autowire.
+_canopy_maybe_autowire "$cmd" "$@"
 case "$cmd" in
   init)          canopy_init "$@" ;;
   start)         canopy_start "$@" ;;
