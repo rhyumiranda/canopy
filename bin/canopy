@@ -19,6 +19,8 @@ export CANOPY_ROOT
 
 # shellcheck source=../lib/common.sh
 . "$CANOPY_ROOT/lib/common.sh"
+# shellcheck source=../lib/telemetry.sh
+. "$CANOPY_ROOT/lib/telemetry.sh"
 # shellcheck source=../lib/state.sh
 . "$CANOPY_ROOT/lib/state.sh"
 # shellcheck source=../lib/agent.sh
@@ -89,7 +91,8 @@ run 'canopy <command> -h' where available.
 EOF
 }
 
-cmd="${1:-}"; shift || true
+cmd="${1:-}"; telemetry_sub="${2:-}"; telemetry_start="$(_canopy_telemetry_now)"; shift || true
+trap '_canopy_telemetry_track_command "$?" "$cmd" "$telemetry_sub" "$telemetry_start"' EXIT
 # Refuse orchestrator-only commands when running as a worker (shared .canopy).
 canopy_role_guard "$cmd" "${1:-}"
 # First-run auto-wire: a Homebrew install can't write ~/.claude at install time, so

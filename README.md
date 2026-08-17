@@ -138,6 +138,14 @@ canopy start                           # opens Claude Code AS the orchestrator
 canopy start --codex                   # opens Codex AS the orchestrator
 ```
 
+**Private telemetry (optional):**
+```bash
+export CANOPY_UMAMI_WEBSITE_ID=<umami-website-id>
+export CANOPY_UMAMI_HOST=https://telemetry-umami.vercel.app
+export CANOPY_TELEMETRY=0              # opt out
+```
+Canopy sends best-effort `command-run` events only when a website ID is configured. It records command/subcommand, result, version, and duration; it never sends prompts, secrets, paths, args, or source text.
+
 `canopy start` is the whole point: it launches Claude Code with the orchestrator playbook loaded, reads `.canopy/`, recovers any in-flight work, and then just waits for your intent — you tell it what you want, it drives the rest. (`canopy init` alone only makes the repo ready; `start` is what makes Claude know what to do.)
 
 `canopy start --codex` runs the orchestrator on Codex; `canopy start` (Claude) is the default. The default worker is the built-in Agent-tool worker (synchronous, no live pane). Use `--agent claude|codex` to pick a worker backend, or `canopy worker spawn <id>` for detached/unattended work. Live Herdr panes are an experimental feature of the `herdr-preview` channel only.
