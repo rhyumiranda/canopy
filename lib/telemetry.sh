@@ -54,7 +54,7 @@ _canopy_telemetry_track_command() {
       }
     }')" || return 0
 
-  curl -fsS --max-time 1 "$host/api/send" \
+  curl -fsS --max-time "${CANOPY_TELEMETRY_TIMEOUT:-3}" "$host/api/send" \
     -H "Content-Type: application/json" \
     -H "User-Agent: $user_agent" \
     --data "$payload" >/dev/null 2>&1 || true
