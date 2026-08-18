@@ -54,8 +54,14 @@ _canopy_telemetry_track_command() {
       }
     }')" || return 0
 
-  curl -fsS --max-time "${CANOPY_TELEMETRY_TIMEOUT:-3}" "$host/api/send" \
-    -H "Content-Type: application/json" \
-    -H "User-Agent: $user_agent" \
-    --data "$payload" >/dev/null 2>&1 || true
+  # Fire-and-forget: this runs inside canopy's EXIT trap (bin/canopy), so it must
+  # NEVER delay command exit. Detach fully — a plain `&` child could catch SIGHUP as
+  # the parent shell ends, so run it in a subshell with `nohup` (macOS bash 3.2 has no
+  # `setsid`): the subshell backgrounds the curl and exits at once, reparenting it, and
+  # nohup makes it ignore the hangup. All output already goes to /dev/null. --max-time
+  # is now just a safety bound on the detached process, not a block on the user.
+  ( nohup curl -fsS --max-time "${CANOPY_TELEMETRY_TIMEOUT:-3}" "$host/api/send" \
+      -H "Content-Type: application/json" \
+      -H "User-Agent: $user_agent" \
+      --data "$payload" >/dev/null 2>&1 & ) >/dev/null 2>&1 || true
 }
