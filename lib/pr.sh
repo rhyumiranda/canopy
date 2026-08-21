@@ -117,6 +117,16 @@ canopy_pr_open() {
     die "task $id not reviewed clean (reviewed=$reviewed) — run 'canopy review $id' first (or CANOPY_SKIP_REVIEW=1)"
   fi
 
+  # HARD GATE 1b (review family): a non-trivial task also needs the adversarial edge
+  # pass recorded (it runs by default in `canopy review`). A task explicitly marked
+  # `trivial 1` is exempt. Same CANOPY_SKIP_REVIEW escape hatch as GATE 1.
+  local trivial edge_reviewed
+  trivial="$(jq -r '.trivial // empty' "$tf")"
+  edge_reviewed="$(jq -r '.edge_reviewed // empty' "$tf")"
+  if [ "$trivial" != "1" ] && [ -z "$edge_reviewed" ] && [ "${CANOPY_SKIP_REVIEW:-0}" != "1" ]; then
+    die "task $id has no edge review recorded — run 'canopy review $id' (the adversarial edge pass runs by default for non-trivial tasks), or mark it 'canopy task set $id trivial 1' (or CANOPY_SKIP_REVIEW=1)"
+  fi
+
   # HARD GATE 2: deterministic checks must pass locally; capture the rendered line for the body.
   if checks_line="$(canopy_checks_status "$wt")"; then :; else
     [ "${CANOPY_SKIP_CHECKS:-0}" = "1" ] || die "task $id has failing checks: $checks_line (fix them, or CANOPY_SKIP_CHECKS=1)"
