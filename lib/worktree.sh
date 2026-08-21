@@ -67,10 +67,26 @@ _assert_deps_merged() {
   return 0
 }
 
+# _assert_plan_approved <id> — the plan gate. Refuse to lease a worktree for a
+# non-trivial task until its plan has been gated and approved (plan_status=approved,
+# set by `canopy plan-gate` on an `approve` verdict). This is what stops the
+# orchestrator skipping the planner/plan-gate in a long session: the lease itself
+# won't proceed. A task explicitly marked `trivial 1` (a one-line, no-ambiguity
+# change) is exempt — that is the deliberate, recorded way to opt out.
+_assert_plan_approved() {
+  local id="$1" tf trivial status
+  tf="$(task_file "$id")"
+  trivial="$(jq -r '.trivial // empty' "$tf" 2>/dev/null)" || trivial=""
+  [ "$trivial" = "1" ] && return 0
+  status="$(jq -r '.plan_status // empty' "$tf" 2>/dev/null)" || status=""
+  [ "$status" = "approved" ] && return 0
+  die "task $id has no approved plan (plan_status=${status:-none}) — run the planner then 'canopy plan-gate $id' until it approves, or mark it a one-liner with 'canopy task set $id trivial 1'."
+}
+
 # canopy worktree lease <id> -> prints leased worktree path
 canopy_worktree_lease() {
   require_canopy; need treehouse; need git
-  local id="${1:?task id}"; _assert_task "$id"; _assert_deps_merged "$id"
+  local id="${1:?task id}"; _assert_task "$id"; _assert_deps_merged "$id"; _assert_plan_approved "$id"
   local tf title branch path
   tf="$(task_file "$id")"
   title="$(jq -r '.title' "$tf")"

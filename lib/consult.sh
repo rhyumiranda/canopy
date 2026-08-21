@@ -113,5 +113,24 @@ EOF
   prompt="$(printf 'Gate the plan for task %s below. Read the real code it references, then return ONLY the JSON verdict.\n\n%s' "$id" "$plan")"
   out="$(_consult_run plan-gate "$prompt")" || out=""
   # plan-gate emits JSON; pull it out of any fencing/prose (shared with review.sh).
-  printf '%s' "$out" | _extract_json
+  local verdict; verdict="$(printf '%s' "$out" | _extract_json)" || verdict=""
+
+  # Record the verdict as the deterministic gate signal for `canopy worktree lease`:
+  # only an `approve` unlocks the lease (see _assert_plan_approved in worktree.sh).
+  # A `revise` (or an unparseable verdict) leaves plan_status non-approved, so the
+  # orchestrator can't skip the plan by "reading" a pass — the state must say so.
+  # Guard: only record when the id names a real task (plan-gate also runs on a bare
+  # plan artifact in tests). In the orchestrator's flow the task always exists.
+  if [ -f "$(task_file "$id")" ]; then
+    local v; v="$(printf '%s' "$verdict" | jq -r '.verdict // empty' 2>/dev/null)" || v=""
+    case "$v" in
+      approve) task_set "$id" plan_status approved >/dev/null
+               task_log "$id" "plan-gate: approved" ;;
+      revise)  task_set "$id" plan_status revise >/dev/null
+               task_log "$id" "plan-gate: revise (plan not approved)" ;;
+      *)       task_log "$id" "plan-gate: no parseable verdict — plan_status unchanged" ;;
+    esac
+  fi
+
+  printf '%s\n' "$verdict"
 }

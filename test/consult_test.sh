@@ -86,6 +86,23 @@ else
   ok "plan-gate errors when the plan artifact is missing"
 fi
 
+# --- plan-gate RECORDS its verdict on a REAL task (the deterministic lease gate
+# signal): approve -> plan_status=approved, revise -> plan_status=revise (never
+# approved). Stub still emits the fenced `approve` verdict from above. ---
+RID="$(cd "$R" && "$CANOPY" task add "gated task" 2>/dev/null)"
+printf 'Plan for %s: build it.\n' "$RID" > "$R/.canopy/plans/$RID.md"
+( cd "$R" && HOME="$WORK/home" PATH="$BIN:$PATH" "$CANOPY" plan-gate "$RID" ) >/dev/null 2>&1
+eq "approve verdict records plan_status=approved" \
+   "$(jq -r '.plan_status // empty' "$R/.canopy/tasks/$RID.json")" "approved"
+cat > "$BIN/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '{"verdict":"revise","feasible":false,"risk_level":"high","gaps":["x"],"summary":"no"}\n'
+EOF
+chmod +x "$BIN/claude"
+( cd "$R" && HOME="$WORK/home" PATH="$BIN:$PATH" "$CANOPY" plan-gate "$RID" ) >/dev/null 2>&1
+eq "revise verdict records plan_status=revise (not approved)" \
+   "$(jq -r '.plan_status // empty' "$R/.canopy/tasks/$RID.json")" "revise"
+
 # --- role guard: a worker MAY call oracle/plan-gate; use env -u per AGENTS.md ---
 if ( cd "$R" && env -u CANOPY_ROLE HOME="$WORK/home" PATH="$BIN:$PATH" CANOPY_ROLE=worker "$CANOPY" oracle "q" ) >/dev/null 2>&1; then
   ok "worker role is ALLOWED to run canopy oracle"
