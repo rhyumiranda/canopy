@@ -99,10 +99,10 @@ WT="$WORK/wt"; mkdir -p "$WT"; ( cd "$WT"; git init -q; git config user.email t@
 # not reviewed -> pr open must refuse with the gate message
 ERR="$(cd "$R2" && "$CANOPY" pr open "$ID" 2>&1 || true)"
 echo "$ERR" | grep -qi 'not reviewed clean' && ok "pr open blocked until reviewed clean" || bad "pr open should block unreviewed: $ERR"
-# mark reviewed clean -> the gate no longer fires (fails later at push instead)
-( cd "$R2" && "$CANOPY" task set "$ID" reviewed clean >/dev/null )
+# mark reviewed clean + edge-reviewed -> both review gates pass (fails later at push)
+( cd "$R2" && "$CANOPY" task set "$ID" reviewed clean >/dev/null && "$CANOPY" task set "$ID" edge_reviewed clean >/dev/null )
 ERR2="$(cd "$R2" && "$CANOPY" pr open "$ID" 2>&1 || true)"
-echo "$ERR2" | grep -qi 'not reviewed clean' && bad "gate should pass once reviewed clean" || ok "gate passes once reviewed clean"
+echo "$ERR2" | grep -qiE 'not reviewed clean|no edge review recorded' && bad "review gates should pass once reviewed+edge clean" || ok "review gates pass once reviewed + edge clean"
 
 echo
 echo "== $PASS passed, $FAIL failed =="

@@ -304,9 +304,14 @@ EOF
   # (union of issues, higher risk wins). Fail-safe: an unparseable/failed edge pass
   # warns and keeps the main verdict; it must NEVER abort the review.
   risk="$(printf '%s' "$v" | jq -r '.risk_level // "unknown"')"
+  local trivial; trivial="$(jq -r '.trivial // empty' "$tf")" || trivial=""
   if [ "$no_edge" != 1 ]; then
     [ "$edge_flag" = 1 ] && run_edge=1
     [ "$risk" = "high" ] && run_edge=1
+    # Default-ON: any non-trivial task gets the adversarial edge pass without a flag
+    # (the PR gate requires it). A task explicitly marked `trivial 1` keeps the old
+    # opt-in behaviour (edge only on --edge or a high-risk main verdict).
+    [ "$trivial" != "1" ] && run_edge=1
   fi
   if [ "$run_edge" = 1 ]; then
     ev="$(_review_edge_claude "$wt" "$intent" "$prov")" || ev=""
@@ -328,6 +333,12 @@ EOF
   head="$(git -C "$wt" rev-parse HEAD 2>/dev/null)"
   task_set "$id" reviewed "$verdict" >/dev/null   # gate signal for 'canopy pr open'
   task_set "$id" review_risk "$risk" >/dev/null
+  # Record that the adversarial edge pass ran (the merged verdict when it did). This
+  # is the gate signal for 'canopy pr open' HARD GATE 3 on non-trivial tasks. We
+  # record it whenever the pass was attempted — a fail-safe fallback still counts as
+  # "edge-reviewed", so a flaky edge model can't wedge the PR (the main review gates
+  # quality regardless).
+  [ "$run_edge" = 1 ] && task_set "$id" edge_reviewed "$verdict" >/dev/null
   task_set "$id" review_head "$head" >/dev/null    # marks this SHA as reviewed (fix-round detection)
   task_set "$id" review_summary "$(printf '%s' "$v" | jq -r '.summary // ""')" >/dev/null
   printf '%s\n' "$v"

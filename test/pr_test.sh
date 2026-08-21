@@ -173,12 +173,32 @@ PRR="$WORK/pr-open-repo"; mkdir -p "$PRR"; (
   "$CANOPY" task set "$PRID" worktree "$PRR" >/dev/null
   "$CANOPY" task set "$PRID" branch rhyu/tail-regression >/dev/null
   "$CANOPY" task set "$PRID" reviewed clean >/dev/null
+  "$CANOPY" task set "$PRID" edge_reviewed clean >/dev/null
   PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID" > "$WORK/pr-open.out" 2> "$WORK/pr-open.err"
 )
 PR_RC=$?
 [ "$PR_RC" -eq 0 ] && ok "pr open succeeds after push when tail -1 is unavailable" || { bad "pr open failed after push"; sed 's/^/       /' "$WORK/pr-open.err"; }
 grep -q '^pr create ' "$GH_LOG" && ok "gh-axi pr create runs after push" || bad "gh-axi pr create did not run"
 [ "$(cat "$WORK/pr-open.out")" = 777 ] && ok "pr open prints PR number only" || bad "unexpected pr open stdout: $(cat "$WORK/pr-open.out")"
+
+# HARD GATE 3: a non-trivial task reviewed clean but with NO edge review is refused;
+# recording the edge review (as `canopy review` does by default) lets it through.
+(
+  cd "$PRR"
+  EID="$("$CANOPY" task add "edge gate" 2>/dev/null)"
+  git checkout -qb rhyu/edge-gate
+  printf 'edge\n' >> f; git add -A; git commit -qm "fix: edge gate"
+  "$CANOPY" task set "$EID" worktree "$PRR" >/dev/null
+  "$CANOPY" task set "$EID" branch rhyu/edge-gate >/dev/null
+  "$CANOPY" task set "$EID" reviewed clean >/dev/null
+  PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$EID" > "$WORK/edge-gate.out" 2> "$WORK/edge-gate.err"; echo "$?" > "$WORK/edge-gate.rc1"
+  "$CANOPY" task set "$EID" edge_reviewed clean >/dev/null           # record the edge pass
+  PATH="$FAKEBIN:$PATH" CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$EID" > "$WORK/edge-gate2.out" 2> "$WORK/edge-gate2.err"; echo "$?" > "$WORK/edge-gate.rc2"
+)
+{ [ "$(cat "$WORK/edge-gate.rc1")" -ne 0 ] && grep -q 'no edge review recorded' "$WORK/edge-gate.err"; } \
+  && ok "pr open blocked: non-trivial task needs an edge review" || { bad "edge gate did not block"; sed 's/^/       /' "$WORK/edge-gate.err"; }
+{ [ "$(cat "$WORK/edge-gate.rc2")" -eq 0 ] && ! grep -q 'no edge review recorded' "$WORK/edge-gate2.err"; } \
+  && ok "pr open passes the edge gate once edge_reviewed is recorded" || { bad "edge gate still blocks after recording"; sed 's/^/       /' "$WORK/edge-gate2.err"; }
 
 (
   cd "$PRR"
@@ -190,6 +210,7 @@ grep -q '^pr create ' "$GH_LOG" && ok "gh-axi pr create runs after push" || bad 
   "$CANOPY" task set "$PRID2" worktree "$PRR" >/dev/null
   "$CANOPY" task set "$PRID2" branch rhyu/pr-create-failure >/dev/null
   "$CANOPY" task set "$PRID2" reviewed clean >/dev/null
+  "$CANOPY" task set "$PRID2" edge_reviewed clean >/dev/null
   PATH="$FAKEBIN:$PATH" GH_AXI_PR_CREATE_FAIL=1 CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID2" > "$WORK/pr-fail.out" 2> "$WORK/pr-fail.err"
 )
 PR_FAIL_RC=$?
@@ -207,6 +228,7 @@ grep -q 'pr create failed' "$WORK/pr-fail.err" && ok "pr create failure message 
   "$CANOPY" task set "$PRID3" worktree "$PRR" >/dev/null
   "$CANOPY" task set "$PRID3" branch rhyu/pr-unparsable-output >/dev/null
   "$CANOPY" task set "$PRID3" reviewed clean >/dev/null
+  "$CANOPY" task set "$PRID3" edge_reviewed clean >/dev/null
   PATH="$FAKEBIN:$PATH" GH_AXI_PR_CREATE_UNPARSABLE=1 CANOPY_SKIP_CHECKS=1 "$CANOPY" pr open "$PRID3" > "$WORK/pr-unparsable.out" 2> "$WORK/pr-unparsable.err"
 )
 PR_UNPARSABLE_RC=$?
@@ -225,6 +247,7 @@ grep -q 'could not parse PR number from gh-axi output' "$WORK/pr-unparsable.err"
   "$CANOPY" task set "$PRID4" worktree "$PRR" >/dev/null
   "$CANOPY" task set "$PRID4" branch rhyu/pr-push-failure >/dev/null
   "$CANOPY" task set "$PRID4" reviewed clean >/dev/null
+  "$CANOPY" task set "$PRID4" edge_reviewed clean >/dev/null
   git remote set-url origin "$WORK/missing-origin.git"
   PR_CREATE_BEFORE="$(grep -c '^pr create ' "$GH_LOG" 2>/dev/null || true)"
   printf '%s\n' "$PR_CREATE_BEFORE" > "$WORK/push-fail-pr-create-before"

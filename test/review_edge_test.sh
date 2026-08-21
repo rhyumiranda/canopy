@@ -95,16 +95,27 @@ eq "--edge: merged risk = high (the higher of low+high)"  "$(printf '%s' "$V1" |
 eq "--edge: merged issues are the union (2)"              "$(printf '%s' "$V1" | jq '.issues|length')" "2"
 eq "--edge: issues verdict exits non-zero"                "$REV_RC" "1"
 
-# (2) without --edge only the MAIN reviewer runs (behavior unchanged)
+# (2) a TRIVIAL task without --edge runs ONLY the main reviewer (opt-in preserved)
 printf '%s' "$MAIN_LOW" > "$MAINF"
 printf '%s' "$EDGE_HIGH" > "$EDGEF"
 : > "$LOG"
 ID2="$(new_task main-only)"
+( cd "$R" && "$CANOPY" task set "$ID2" trivial 1 >/dev/null 2>&1 )
 runrev "$ID2"; V2="$REV_OUT"
-eq "no --edge: main pass ran once" "$(grep -c '^main$' "$LOG")" "1"
-eq "no --edge: edge pass did NOT run" "$(grep -c '^edge$' "$LOG")" "0"
-eq "no --edge: verdict is the main reviewer's (clean)" "$(printf '%s' "$V2" | jq -r '.verdict')" "clean"
-eq "no --edge: risk is the main reviewer's (low)"       "$(printf '%s' "$V2" | jq -r '.risk_level')" "low"
+eq "trivial, no --edge: main pass ran once" "$(grep -c '^main$' "$LOG")" "1"
+eq "trivial, no --edge: edge pass did NOT run" "$(grep -c '^edge$' "$LOG")" "0"
+eq "trivial, no --edge: verdict is the main reviewer's (clean)" "$(printf '%s' "$V2" | jq -r '.verdict')" "clean"
+eq "trivial, no --edge: risk is the main reviewer's (low)"       "$(printf '%s' "$V2" | jq -r '.risk_level')" "low"
+
+# (2b) a NON-TRIVIAL task runs the edge pass BY DEFAULT (no flag) and RECORDS it
+printf '%s' "$MAIN_LOW" > "$MAINF"
+printf '%s' "$EDGE_HIGH" > "$EDGEF"
+: > "$LOG"
+ID2B="$(new_task default-edge)"
+runrev "$ID2B"; V2B="$REV_OUT"
+eq "non-trivial, no flag: edge pass ran by default"     "$(grep -c '^edge$' "$LOG")" "1"
+eq "non-trivial: merged verdict takes the edge issues"  "$(printf '%s' "$V2B" | jq -r '.verdict')" "issues"
+eq "non-trivial: edge_reviewed recorded (pr-open gate)" "$(jq -r '.edge_reviewed // empty' "$R/.canopy/tasks/$ID2B.json")" "issues"
 
 # (3) a high-risk MAIN verdict AUTO-runs the edge pass (defense-in-depth), no flag
 MAIN_HIGH='{"verdict":"issues","risk_level":"high","risk_rationale":"auth","issues":[{"severity":"high","action":"worker-fix","where":"c.sh:3","problem":"P3","fix":"h"}],"docs_in_sync":true,"summary":"main-high"}'
