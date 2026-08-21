@@ -30,6 +30,7 @@ if command -v treehouse >/dev/null; then
   ( cd "$R2" && "$CANOPY" init >/dev/null 2>&1 )
   IDA="$(cd "$R2" && "$CANOPY" task add "task A" 2>/dev/null)"
   IDB="$(cd "$R2" && "$CANOPY" task add "task B" 2>/dev/null)"
+  ( cd "$R2" && "$CANOPY" task set "$IDA" trivial 1 >/dev/null 2>&1; "$CANOPY" task set "$IDB" trivial 1 >/dev/null 2>&1 )   # plumbing fixtures: skip the plan gate
   PA="$(cd "$R2" && "$CANOPY" worktree lease "$IDA" 2>/dev/null)"
   PB="$(cd "$R2" && "$CANOPY" worktree lease "$IDB" 2>/dev/null)"
   [ -n "$PA" ] && [ -n "$PB" ] && [ "$PA" != "$PB" ] && ok "parallel: 2 tasks -> 2 distinct worktrees" || bad "parallel leases collided: A=$PA B=$PB"

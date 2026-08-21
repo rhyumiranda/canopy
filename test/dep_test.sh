@@ -86,6 +86,27 @@ printf '#!/usr/bin/env bash\necho "state: MERGED"\n' > "$STUB/gh-axi"; chmod +x 
 printf '#!/usr/bin/env bash\necho "state: OPEN"\n' > "$STUB/gh-axi"; chmod +x "$STUB/gh-axi"
 ( cd "$R" && PATH="$STUB:$PATH" _assert_deps_merged t5 >/dev/null 2>&1 ) && bad "gate must block while dep PR open" || ok "gate blocks while dep PR still open"
 
+# --- the plan gate (_assert_plan_approved): a non-trivial task can't lease until
+# its plan is approved; a trivial task or an approved plan passes; a revise does not.
+P1="$("$CANOPY" task add "needs a plan" 2>/dev/null)"
+( cd "$R" && _assert_plan_approved "$P1" >/dev/null 2>&1 ) \
+  && bad "plan gate must block a non-trivial task with no approved plan" \
+  || ok "plan gate blocks lease without an approved plan"
+"$CANOPY" task set "$P1" plan_status approved >/dev/null 2>&1
+( cd "$R" && _assert_plan_approved "$P1" >/dev/null 2>&1 ) \
+  && ok "plan gate passes once plan_status=approved" \
+  || bad "plan gate should pass when approved"
+P2="$("$CANOPY" task add "one-liner" 2>/dev/null)"
+"$CANOPY" task set "$P2" trivial 1 >/dev/null 2>&1
+( cd "$R" && _assert_plan_approved "$P2" >/dev/null 2>&1 ) \
+  && ok "plan gate exempts a trivial task" \
+  || bad "trivial task must be exempt from the plan gate"
+P3="$("$CANOPY" task add "revised" 2>/dev/null)"
+"$CANOPY" task set "$P3" plan_status revise >/dev/null 2>&1
+( cd "$R" && _assert_plan_approved "$P3" >/dev/null 2>&1 ) \
+  && bad "plan gate must block a plan_status=revise task" \
+  || ok "plan gate blocks a revise (non-approved) plan"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

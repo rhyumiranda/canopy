@@ -20,6 +20,7 @@ printf 'max_trees = 8\nroot = "./"\n' > treehouse.toml; git add -A; git commit -
 
 "$CANOPY" init >/dev/null 2>&1
 ID="$("$CANOPY" task add "expose postgres port" 2>/dev/null)"
+"$CANOPY" task set "$ID" trivial 1 >/dev/null 2>&1   # plumbing fixture: skip the plan gate
 
 # lease
 P="$("$CANOPY" worktree lease "$ID" 2>/dev/null)"
@@ -41,6 +42,7 @@ eq "worktree path helper" "$("$CANOPY" worktree path "$ID" 2>/dev/null)" "$P"
 
 # a repo with its own naming convention can override the prefix
 PID="$("$CANOPY" task add "custom prefix" 2>/dev/null)"
+"$CANOPY" task set "$PID" trivial 1 >/dev/null 2>&1
 CANOPY_BRANCH_PREFIX=feat "$CANOPY" worktree lease "$PID" >/dev/null 2>&1
 eq "CANOPY_BRANCH_PREFIX overrides the default" \
    "$(jq -r '.branch' "$R/.canopy/tasks/$PID.json")" "feat/${PID}-custom-prefix"
@@ -57,6 +59,7 @@ git -C "$R" checkout -q main                # keep the pool's default on main
 DEVTIP="$(git -C "$R" rev-parse develop)"
 "$CANOPY" base develop >/dev/null 2>&1
 ID2="$("$CANOPY" task add "cut from develop" 2>/dev/null)"
+"$CANOPY" task set "$ID2" trivial 1 >/dev/null 2>&1
 P2="$("$CANOPY" worktree lease "$ID2" 2>/dev/null)"
 # no origin in this fixture -> lease anchors to the LOCAL base branch (develop)
 eq "feature branch cut from the configured base (develop)" \
@@ -75,6 +78,7 @@ printf 'max_trees = 8\nroot = "./"\n' > treehouse.toml; git add -A; git commit -
 
 "$CANOPY" init >/dev/null 2>&1
 CID="$("$CANOPY" task add "build the thing" 2>/dev/null)"
+"$CANOPY" task set "$CID" trivial 1 >/dev/null 2>&1   # so the plan gate passes and container detection is what refuses
 
 COUT="$("$CANOPY" worktree lease "$CID" 2>&1)"; CRC=$?
 [ "$CRC" -ne 0 ] && ok "lease fails fast on a container repo" || bad "lease did not fail on container"
