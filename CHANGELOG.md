@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/rhyumiranda/canopy/compare/v0.15.0...v0.16.0) (2026-08-21)
+
+
+### Features
+
+* **gate:** refuse to lease a non-trivial task without an approved plan ([#86](https://github.com/rhyumiranda/canopy/issues/86)) ([df5b16e](https://github.com/rhyumiranda/canopy/commit/df5b16e490e450ba76997660dc3b72e09054b34c))
+* **gate:** run the adversarial edge review by default and gate the PR on it ([#87](https://github.com/rhyumiranda/canopy/issues/87)) ([12efd2c](https://github.com/rhyumiranda/canopy/commit/12efd2c30eec1c3b75f8b42f7f5d10eb95fb2991))
+
 ## [0.15.0](https://github.com/rhyumiranda/canopy/compare/v0.14.0...v0.15.0) (2026-08-16)
 
 
